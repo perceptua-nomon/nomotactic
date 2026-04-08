@@ -43,6 +43,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9ca72cb3-e9e7-4806-bfa3-5afa9f378881"
+      }
+    },
+    "owner": "perceptua"
   }
 }
