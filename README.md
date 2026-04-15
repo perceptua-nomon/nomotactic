@@ -33,23 +33,24 @@ npx expo start --web
 
 ```
 app/
-  _layout.tsx         Root layout (AuthProvider, StatusBar)
-  index.tsx           Smart entry (landing page / login redirect / device pairing)
-  login.tsx           Login & registration screen
+  _layout.tsx            Root layout (AuthProvider, StatusBar)
+  index.tsx              Entry routing (authenticated → /(app), mobile unauth → /login, web unauth → landing)
+  login.tsx              Login & registration screen
   (app)/
-    _layout.tsx       Auth guard + AI command input bar
-    index.tsx         Device dashboard with expandable cards
-components/           Reusable UI components (cards, command input)
+    _layout.tsx          Auth guard (/login redirect) + AI command input bar
+    index.tsx            Devices dashboard (fleet list + pairing)
+    device/
+      _layout.tsx        Device detail route group layout
+      [id].tsx           Per-device control screen (cards)
+components/              Reusable UI components (cards, command input)
 constants/
-  config.ts           API URLs (DEVICE_API_URL, CENTRAL_API_URL)
+  config.ts              API URLs, timeouts (env-var overridable)
 lib/
-  api.ts              Typed fetch wrapper with per-URL auth injection
-  auth.tsx            AuthProvider — central + device token management, pairing
-  auth.tsx            Auth context + secure token storage
-  ble.ts              BLE service interface + mock implementation
-  theme.ts            Dark theme palette, spacing, typography
-constants/
-  config.ts           API URLs, timeouts (env-var overridable)
+  api.ts                 Typed fetch wrapper with per-URL auth injection
+  auth.tsx               Auth context + secure token storage + pairing helpers
+  ble.ts                 BLE service interface + mock implementation
+  devices.ts             Fleet device hook and mappers
+  theme.ts               Dark theme palette, spacing, typography
 ```
 
 ## Configuration

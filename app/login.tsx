@@ -2,6 +2,8 @@
  * Login / Register screen.
  *
  * Single screen with mode toggle between login and registration.
+ * Redirect authority is centralized in the auth-state effect below
+ * to avoid duplicate navigation during auth transitions.
  * Uses the AuthContext for credential handling.
  */
 
@@ -48,9 +50,8 @@ export default function LoginScreen() {
       } else {
         await login(email, password);
       }
-      router.replace("/(app)");
-    } catch (err) {
-      setError((err as Error).message || "Authentication failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
       setIsLoading(false);
     }
@@ -61,6 +62,17 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <Pressable
+        onPress={() => {
+          if (Platform.OS === "web") {
+            router.push("/");
+          }
+        }}
+        style={styles.brand}
+      >
+        <Text style={styles.brandText}>nomon</Text>
+      </Pressable>
+
       <View style={styles.card}>
         <Text style={styles.title}>{isRegisterMode ? "Create Account" : "Sign In"}</Text>
 
@@ -130,6 +142,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: spacing.lg,
+  },
+  brand: {
+    marginBottom: spacing.lg,
+    alignItems: "center",
+  },
+  brandText: {
+    ...typography.title,
+    color: colors.primary,
   },
   card: {
     width: "100%",

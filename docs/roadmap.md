@@ -25,6 +25,12 @@ Phase 1 is complete. The app has:
 - AI-ready command input bar
 - `npx expo lint` clean
 
+### Hotfixes
+
+- 2026-04-14: iOS logout redirect loop (`Maximum update depth exceeded`) fixed
+  by keeping `/login` as the unauthenticated redirect target for `(app)` and
+  centralizing post-login route transition in `login.tsx` auth-state redirect.
+
 ---
 
 ## Phase 1 — App Foundation & Auth
@@ -89,12 +95,14 @@ JWT auth) for auth flow and fleet endpoints.
 
 ### 1.3 — Device Control Dashboard
 
-**Goal:** Primary device interaction screen with expandable cards.
+**Goal:** Fleet-first dashboard with per-device control detail.
 
 - [x] `app/(app)/_layout.tsx` — authenticated route group:
   - Auth guard: redirect to `/login` if not authenticated
-  - Layout wrapper (safe area, scroll view)
-- [x] `app/(app)/index.tsx` — dashboard with expandable card sections
+  - Layout wrapper (safe area, content slot, command bar)
+- [x] `app/(app)/index.tsx` — dashboard with fleet list + pairing form
+- [x] `app/(app)/device/[id].tsx` — per-device control page
+- [x] `lib/devices.ts` — fleet hook for list/refresh + last-seen formatter
 - [x] `components/StatusCard.tsx` — battery voltage, uptime, firmware version,
       connection indicator. Auto-refreshes every 5 s.
 - [x] `components/MotorCard.tsx` — directional pad (forward / backward / left /
@@ -108,7 +116,8 @@ JWT auth) for auth flow and fleet endpoints.
       (elapsed time, obstacle/cliff counts). Polls `/api/routine/status`.
 
 **Exit criteria:**
-- ✅ Dashboard renders with all cards
+- ✅ Devices dashboard renders fleet list and pairing controls
+- ✅ Device detail route renders all control cards
 - ✅ Status card fetches and displays battery voltage from device API
 - ✅ Motor controls send API requests and display feedback
 - ✅ Platform-conditional rendering verified (web hides motor card)
