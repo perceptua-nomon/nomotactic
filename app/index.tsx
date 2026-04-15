@@ -1,154 +1,33 @@
 /**
- * Smart entry point — platform + auth-aware routing.
+ * Marketing landing page.
  *
- * - Web + unauthenticated → landing page content
- * - Mobile + unauthenticated → redirect to /login
- * - Authenticated (any platform) → redirect to /(app)/
- *
- * When authenticated but not device-paired, shows an inline pairing
- * prompt at the top of the landing/dashboard.
+ * - Authenticated → redirect to /(app)/
+ * - Mobile unauthenticated → redirect to /login
+ * - Unauthenticated → hero, feature cards, CTA buttons
  */
 
 import { Redirect, useRouter } from "expo-router";
-import React, { useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import React from "react";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 export default function Index() {
-  const { isAuthenticated, isLoading, isDevicePaired, pairWithDevice } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
-
-  const [pairingSecret, setPairingSecret] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [pairingError, setPairingError] = useState<string | null>(null);
-  const [isPairing, setIsPairing] = useState(false);
 
   if (isLoading) return null;
 
-  // Authenticated users go straight to the dashboard
   if (isAuthenticated) {
     return <Redirect href="/(app)" />;
   }
 
-  async function handlePair() {
-    if (!pairingSecret.trim() || !displayName.trim()) return;
-    setIsPairing(true);
-    setPairingError(null);
-    try {
-      await pairWithDevice(pairingSecret.trim(), displayName.trim());
-      setPairingSecret("");
-      setDisplayName("");
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Pairing failed";
-      setPairingError(message);
-    } finally {
-      setIsPairing(false);
-    }
-  }
-
-  // Mobile unauthenticated → login screen
   if (Platform.OS !== "web") {
-    return (
-      <View style={styles.container}>
-        {!isDevicePaired && (
-          <View style={styles.pairingCard}>
-            <Text style={styles.pairingTitle}>Pair with Device</Text>
-            <Text style={styles.pairingDesc}>
-              Enter the pairing secret from the device console.
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Pairing secret"
-              placeholderTextColor={colors.textMuted}
-              value={pairingSecret}
-              onChangeText={setPairingSecret}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Your name"
-              placeholderTextColor={colors.textMuted}
-              value={displayName}
-              onChangeText={setDisplayName}
-              autoCapitalize="words"
-            />
-            {pairingError && (
-              <Text style={styles.errorText}>{pairingError}</Text>
-            )}
-            <Pressable
-              style={({ pressed }) => [
-                styles.pairButton,
-                pressed && styles.pairButtonPressed,
-                isPairing && styles.pairButtonDisabled,
-              ]}
-              onPress={handlePair}
-              disabled={isPairing}
-            >
-              <Text style={styles.pairButtonText}>
-                {isPairing ? "Pairing…" : "Pair"}
-              </Text>
-            </Pressable>
-          </View>
-        )}
-        <Pressable
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-          onPress={() => router.push("/login")}
-        >
-          <Text style={styles.ctaText}>Sign In to Fleet</Text>
-        </Pressable>
-      </View>
-    );
+    return <Redirect href="/login" />;
   }
-
-  // Web unauthenticated → landing page
   return (
     <View style={styles.container}>
-      {!isDevicePaired && (
-        <View style={styles.pairingCard}>
-          <Text style={styles.pairingTitle}>Pair with Device</Text>
-          <Text style={styles.pairingDesc}>
-            Enter the pairing secret from the device console.
-          </Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Pairing secret"
-            placeholderTextColor={colors.textMuted}
-            value={pairingSecret}
-            onChangeText={setPairingSecret}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Your name"
-            placeholderTextColor={colors.textMuted}
-            value={displayName}
-            onChangeText={setDisplayName}
-            autoCapitalize="words"
-          />
-          {pairingError && (
-            <Text style={styles.errorText}>{pairingError}</Text>
-          )}
-          <Pressable
-            style={({ pressed }) => [
-              styles.pairButton,
-              pressed && styles.pairButtonPressed,
-              isPairing && styles.pairButtonDisabled,
-            ]}
-            onPress={handlePair}
-            disabled={isPairing}
-          >
-            <Text style={styles.pairButtonText}>
-              {isPairing ? "Pairing…" : "Pair"}
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
       <View style={styles.hero}>
         <Text style={styles.heroTitle}>nomon</Text>
         <Text style={styles.heroTagline}>
@@ -179,12 +58,20 @@ export default function Index() {
         </View>
       </View>
 
-      <Pressable
-        style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-        onPress={() => router.push("/login")}
-      >
-        <Text style={styles.ctaText}>Get Started</Text>
-      </Pressable>
+      <View style={styles.ctaRow}>
+        <Pressable
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={() => router.push("/login")}
+        >
+          <Text style={styles.ctaText}>Sign In</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={() => router.push("/login")}
+        >
+          <Text style={styles.ctaText}>Register</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -231,6 +118,10 @@ const styles = StyleSheet.create({
   featureDesc: {
     ...typography.caption,
   },
+  ctaRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
   cta: {
     backgroundColor: colors.primary,
     borderRadius: borderRadius.sm,
@@ -243,55 +134,6 @@ const styles = StyleSheet.create({
   ctaText: {
     color: colors.background,
     fontSize: 18,
-    fontWeight: "600",
-  },
-  pairingCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    width: "100%",
-    maxWidth: 500,
-    marginBottom: spacing.xl,
-  },
-  pairingTitle: {
-    ...typography.heading,
-    marginBottom: spacing.xs,
-  },
-  pairingDesc: {
-    ...typography.caption,
-    marginBottom: spacing.md,
-  },
-  input: {
-    backgroundColor: colors.background,
-    color: colors.text,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    fontSize: 16,
-    marginBottom: spacing.sm,
-  },
-  errorText: {
-    color: colors.error,
-    fontSize: 14,
-    marginBottom: spacing.sm,
-  },
-  pairButton: {
-    backgroundColor: colors.secondary,
-    borderRadius: borderRadius.sm,
-    paddingVertical: spacing.md,
-    alignItems: "center" as const,
-    marginTop: spacing.xs,
-  },
-  pairButtonPressed: {
-    opacity: 0.8,
-  },
-  pairButtonDisabled: {
-    opacity: 0.5,
-  },
-  pairButtonText: {
-    color: colors.background,
-    fontSize: 16,
     fontWeight: "600",
   },
 });
