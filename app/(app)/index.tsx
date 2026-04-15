@@ -3,12 +3,14 @@
  *
  * Lists fleet devices with online status and last-seen info.
  * Includes a pairing form for adding new devices.
+ * On mobile, includes BLE scan for nearby nomon devices.
  */
 
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
     ActivityIndicator,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -19,6 +21,7 @@ import {
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { useAuth } from "@/lib/auth";
+import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
 import { Device, formatLastSeen, useDevices } from "@/lib/devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
@@ -31,6 +34,51 @@ export default function DashboardScreen() {
   const [displayName, setDisplayName] = useState("");
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
+
+  // BLE scan state (mobile only)
+  const [bleDevices, setBleDevices] = useState<BleDevice[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
+  const [blePairingDeviceId, setBlePairingDeviceId] = useState<string | null>(null);
+  const [blePairingSecret, setBlePairingSecret] = useState("");
+  const [blePairingError, setBlePairingError] = useState<string | null>(null);
+  const [isBlePairing, setIsBlePairing] = useState(false);
+
+  const bleServiceRef = React.useRef<BleService | null>(null);
+
+  async function handleBleScan() {
+    setIsScanning(true);
+    setBleDevices([]);
+    try {
+      const ble = bleServiceRef.current ?? createBleService();
+      bleServiceRef.current = ble;
+      const found = await ble.scan(5000);
+      setBleDevices(found);
+    } catch {
+      // Scan failed — show empty list
+    } finally {
+      setIsScanning(false);
+    }
+  }
+
+  async function handleBlePair() {
+    if (!blePairingDeviceId || !blePairingSecret.trim()) return;
+    setIsBlePairing(true);
+    setBlePairingError(null);
+    try {
+      const ble = bleServiceRef.current ?? createBleService();
+      bleServiceRef.current = ble;
+      await ble.connect(blePairingDeviceId);
+      await ble.pair(blePairingSecret.trim());
+      setBlePairingDeviceId(null);
+      setBlePairingSecret("");
+      router.push(`/(app)/device/${blePairingDeviceId}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "BLE pairing failed";
+      setBlePairingError(message);
+    } finally {
+      setIsBlePairing(false);
+    }
+  }
 
   async function handlePair() {
     if (!pairingSecret.trim() || !displayName.trim()) return;
@@ -109,6 +157,76 @@ export default function DashboardScreen() {
       )}
 
       {!isLoading && devices.map(renderDeviceCard)}
+
+      {Platform.OS !== "web" && (
+        <ExpandableCard
+          title="Scan for Nearby Devices"
+          defaultExpanded={false}
+        >
+          <Pressable
+            style={({ pressed }) => [
+              styles.scanButton,
+              pressed && styles.pairButtonPressed,
+              isScanning && styles.pairButtonDisabled,
+            ]}
+            onPress={handleBleScan}
+            disabled={isScanning}
+          >
+            <Text style={styles.scanButtonText}>
+              {isScanning ? "Scanning\u2026" : "Start BLE Scan"}
+            </Text>
+          </Pressable>
+
+          {bleDevices.map((bd) => (
+            <Pressable
+              key={bd.id}
+              style={[
+                styles.deviceCard,
+                blePairingDeviceId === bd.id && styles.bleDeviceSelected,
+              ]}
+              onPress={() => setBlePairingDeviceId(bd.id)}
+            >
+              <View style={styles.deviceHeader}>
+                <Text style={styles.deviceName}>{bd.name ?? bd.id}</Text>
+                <Text style={styles.deviceDetail}>
+                  {bd.rssi !== null ? `${bd.rssi} dBm` : ""}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+
+          {blePairingDeviceId !== null && (
+            <View style={styles.blePairForm}>
+              <TextInput
+                style={styles.input}
+                placeholder="Pairing secret"
+                placeholderTextColor={colors.textMuted}
+                value={blePairingSecret}
+                onChangeText={setBlePairingSecret}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+              />
+              {blePairingError !== null && (
+                <Text style={styles.pairingErrorText}>{blePairingError}</Text>
+              )}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.pairButton,
+                  pressed && styles.pairButtonPressed,
+                  isBlePairing && styles.pairButtonDisabled,
+                ]}
+                onPress={handleBlePair}
+                disabled={isBlePairing}
+              >
+                <Text style={styles.pairButtonText}>
+                  {isBlePairing ? "Pairing\u2026" : "Pair via BLE"}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </ExpandableCard>
+      )}
 
       <ExpandableCard
         title="Pair New Device"
@@ -263,5 +381,24 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 16,
     fontWeight: "600",
+  },
+  scanButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.sm,
+    paddingVertical: spacing.md,
+    alignItems: "center" as const,
+    marginBottom: spacing.md,
+  },
+  scanButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  bleDeviceSelected: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  blePairForm: {
+    marginTop: spacing.sm,
   },
 });

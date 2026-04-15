@@ -3,6 +3,7 @@
  *
  * Renders the same card set as the original dashboard
  * (StatusCard, MotorCard, CameraCard, SensorCard, RoutineCard).
+ * Wrapped in TransportProvider for BLE/HTTPS routing.
  */
 
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,10 +11,12 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { CameraCard } from "@/components/CameraCard";
+import { ConnectionIndicator } from "@/components/ConnectionIndicator";
 import { MotorCard } from "@/components/MotorCard";
 import { RoutineCard } from "@/components/RoutineCard";
 import { SensorCard } from "@/components/SensorCard";
 import { StatusCard } from "@/components/StatusCard";
+import { TransportProvider } from "@/lib/transport";
 import { colors, spacing, typography } from "@/lib/theme";
 
 export default function DeviceDetailScreen() {
@@ -21,23 +24,26 @@ export default function DeviceDetailScreen() {
   const router = useRouter();
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-    >
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()}>
-          <Text style={styles.backButton}>{"\u2190"} Back</Text>
-        </Pressable>
-        <Text style={styles.title}>Device: {id}</Text>
-      </View>
+    <TransportProvider>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()}>
+            <Text style={styles.backButton}>{"\u2190"} Back</Text>
+          </Pressable>
+          <Text style={styles.title}>Device: {id}</Text>
+        </View>
 
-      <StatusCard />
-      <MotorCard />
-      <CameraCard />
-      <SensorCard />
-      <RoutineCard />
-    </ScrollView>
+        <ConnectionIndicator />
+        <StatusCard />
+        <MotorCard />
+        <CameraCard />
+        <SensorCard />
+        <RoutineCard />
+      </ScrollView>
+    </TransportProvider>
   );
 }
 

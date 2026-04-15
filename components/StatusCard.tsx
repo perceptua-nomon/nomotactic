@@ -2,6 +2,7 @@
  * Status card — battery voltage, uptime, firmware, connection state.
  *
  * Auto-refreshes every 5 seconds while expanded.
+ * Uses TransportProvider to route commands via HTTPS or BLE.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -11,25 +12,37 @@ import { ExpandableCard } from "@/components/ExpandableCard";
 import { STATUS_REFRESH_INTERVAL_MS } from "@/constants/config";
 import { deviceApi } from "@/lib/api";
 import { colors, spacing, typography } from "@/lib/theme";
+import { useOptionalTransport } from "@/lib/transport";
 
 interface BatteryData {
   voltage_v: number;
   timestamp: string;
 }
 
+interface BleBatteryData {
+  voltageMv: number;
+  voltageV: number;
+}
+
 export function StatusCard() {
   const [voltage, setVoltage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const transport = useOptionalTransport();
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await deviceApi<BatteryData>("/api/hat/battery");
-      setVoltage(data.voltage_v);
+      if (transport?.mode === "ble") {
+        const data = await transport.sendCommand("/api/hat/battery", {}) as BleBatteryData;
+        setVoltage(data.voltageV);
+      } else {
+        const data = await deviceApi<BatteryData>("/api/hat/battery");
+        setVoltage(data.voltage_v);
+      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     }
-  }, []);
+  }, [transport]);
 
   useEffect(() => {
     fetchStatus();

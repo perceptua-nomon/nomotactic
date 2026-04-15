@@ -71,9 +71,10 @@ on fleet discovery and pairing.
 | Context | Behaviour |
 |---------|-----------|
 | **Web, unauthenticated** | Landing page (hero, features, CTA to login) |
-| **Web, authenticated** | Fleet dashboard. No Bluetooth features. Motor controls hidden (no BLE fallback). |
-| **Mobile, WiFi connected** | Full device control: motors, camera, sensors, settings, calibration |
-| **Mobile, BLE only** | (Future) Limited control: motor commands, device status via BLE |
+| **Web, authenticated** | Fleet dashboard. No Bluetooth features. Motor controls hidden (no BLE fallback). HTTPS only. |
+| **Mobile, WiFi connected** | Full device control: motors, camera, sensors, settings, calibration. HTTPS transport. |
+| **Mobile, BLE only** | Basic control: motor commands, servo, battery, sensors via BLE binary protocol. Camera/audio/calibration/routines unavailable (require HTTPS). |
+| **Mobile, BLE → WiFi transition** | After BLE pairing, app exchanges WiFi credentials over BLE. Pi joins WiFi. App switches to HTTPS for full feature set. JWT from BLE pairing is reused. |
 
 Platform detection uses `Platform.OS` from React Native. Feature visibility
 is conditional, not page-based.
@@ -139,20 +140,57 @@ fetch data independently and handle their own error states.
 
 ## BLE Abstraction
 
-`lib/ble.ts` defines a `BleService` interface:
+`lib/ble.ts` defines a `BleService` interface for BLE communication:
 
 ```
 interface BleService {
   scan(): Promise<Device[]>
   connect(deviceId: string): Promise<void>
   disconnect(): Promise<void>
-  sendCommand(method: string, params: object): Promise<object>
+  pair(secret: string): Promise<PairingResult>
+  drive(speedPct: number, ttlMs?: number): Promise<void>
+  steer(angleDeg: number, ttlMs?: number): Promise<void>
+  getBattery(): Promise<{ voltageMv: number }>
+  readUltrasonic(): Promise<{ distanceCm: number }>
   onStatusChange(callback: (status: ConnectionStatus) => void): void
 }
 ```
 
-Phase 1 ships with `MockBleService` — all methods return stub data.
-A future phase will add `RealBleService` using a BLE library.
+Phase 1 shipped `MockBleService` — all methods return stub data (web platform).
+Phase 2 (complete) added `RealBleService` using `react-native-ble-plx` with:
+
+- BLE device discovery by nomon GATT service UUID
+- Binary protocol codec (`lib/ble-protocol.ts`) matching nomopractic ADR-002
+- AES-128-CCM session encryption (`@noble/ciphers`)
+- HKDF-SHA256 key derivation (`@noble/hashes`)
+- WiFi provisioning flow over BLE GATT characteristics
+- Hybrid transport layer (`lib/transport.ts`) for BLE → HTTPS switching
+
+Web platform always receives `MockBleService` (BLE is mobile-only).
+
+### BLE Transport Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  nomotactic (mobile)                                │
+│                                                     │
+│  TransportProvider                                  │
+│  ┌───────────────────────────────────────────┐  │
+│  │ if WiFi available:  ─── HTTPS ───▶ nomothetic  │  │
+│  │ if BLE only:        ─── BLE  ───▶ nomopractic │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+
+  BLE path (binary protocol):                 HTTPS path (JSON):
+  nomotactic                                  nomotactic
+   │ BLE GATT write (binary frame)             │ fetch() + JSON
+   └─▶ nomopractic BLE GATT server              └─▶ nomothetic REST API
+       │ ble/bridge.rs → handler.rs                  │ HatClient → IPC
+       └─▶ HAT hardware                               └─▶ nomopractic → HAT
+```
+
+BLE provides a subset of the HTTPS feature set (motor/servo/sensor commands).
+Camera, audio, streaming, calibration, and routines require HTTPS.
 
 ## AI-Ready Command Input
 
@@ -174,8 +212,10 @@ layout (see [ADR-002](adr/002-ai-ready-ux.md)):
 - `react-native-screens` (native navigation)
 - `react-native-gesture-handler` (gesture support)
 
-**To add in Phase 1:**
-- `expo-secure-store` (credential storage on mobile)
+**To add in Phase 2 (BLE Integration):**
+- `react-native-ble-plx` (BLE GATT client for Android/iOS)
+- `@noble/hashes` (HKDF-SHA256 key derivation)
+- `@noble/ciphers` (AES-128-CCM session encryption)
 
 **No additional UI libraries.** All components built with core RN primitives
 (`View`, `Text`, `TextInput`, `Pressable`, `ScrollView`, `Platform`).
