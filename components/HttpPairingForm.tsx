@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
+import { DEVICE_API_URL } from "@/constants/config";
 import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
@@ -31,7 +32,10 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
       setDisplayName("");
       await onPaired();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Pairing failed";
+      let message = err instanceof Error ? err.message : "Pairing failed";
+      if (message === "Request timed out") {
+        message = `Device not reachable at ${DEVICE_API_URL}. Ensure the nomon is powered on and connected to the network.`;
+      }
       setPairingError(message);
     } finally {
       setIsPairing(false);

@@ -14,6 +14,7 @@ export function BlePairingFlow() {
   const router = useRouter();
   const [bleDevices, setBleDevices] = useState<BleDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [blePairingDeviceId, setBlePairingDeviceId] = useState<string | null>(null);
   const [blePairingSecret, setBlePairingSecret] = useState("");
   const [blePairingError, setBlePairingError] = useState<string | null>(null);
@@ -24,13 +25,18 @@ export function BlePairingFlow() {
   async function handleBleScan() {
     setIsScanning(true);
     setBleDevices([]);
+    setScanError(null);
     try {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
       const found = await ble.scan(5000);
       setBleDevices(found);
-    } catch {
-      // Scan failed — show empty list
+      if (found.length === 0) {
+        setScanError("No devices found. Make sure your nomon is powered on and nearby.");
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "BLE scan failed";
+      setScanError(message);
     } finally {
       setIsScanning(false);
     }
@@ -71,6 +77,10 @@ export function BlePairingFlow() {
           {isScanning ? "Scanning\u2026" : "Start BLE Scan"}
         </Text>
       </Pressable>
+
+      {scanError !== null && bleDevices.length === 0 && (
+        <Text style={styles.errorText}>{scanError}</Text>
+      )}
 
       {bleDevices.map((bd) => (
         <Pressable
