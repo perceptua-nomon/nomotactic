@@ -2,28 +2,28 @@
  * Motor control card — directional pad and speed slider.
  *
  * Hidden on web (no BLE fallback for motor commands).
+ * Uses TransportProvider to route commands via HTTPS or BLE.
  */
 
 import React, { useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
 
 export function MotorCard() {
   const [speed, setSpeed] = useState(50);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const sendCommand = useDeviceCommand();
 
   // Hidden on web — no BLE fallback
   if (Platform.OS === "web") return null;
 
   async function sendDrive(speedPct: number) {
     try {
-      await deviceApi("/api/drive", {
-        method: "POST",
-        body: { speed_pct: speedPct, ttl_ms: 500 },
-      });
+      await sendCommand(ENDPOINTS.DRIVE, { speed_pct: speedPct, ttl_ms: 500 });
       setFeedback(`Drive: ${speedPct}%`);
     } catch (err) {
       setFeedback((err as Error).message);
@@ -32,10 +32,7 @@ export function MotorCard() {
 
   async function sendSteer(angleDeg: number) {
     try {
-      await deviceApi("/api/steer", {
-        method: "POST",
-        body: { angle_deg: angleDeg, ttl_ms: 500 },
-      });
+      await sendCommand(ENDPOINTS.STEER, { angle_deg: angleDeg, ttl_ms: 500 });
       setFeedback(`Steer: ${angleDeg}°`);
     } catch (err) {
       setFeedback((err as Error).message);
@@ -44,7 +41,7 @@ export function MotorCard() {
 
   async function stop() {
     try {
-      await deviceApi("/api/hat/motor/stop", { method: "POST" });
+      await sendCommand(ENDPOINTS.MOTOR_STOP, {});
       setFeedback("Stopped");
     } catch (err) {
       setFeedback((err as Error).message);

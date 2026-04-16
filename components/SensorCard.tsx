@@ -1,17 +1,24 @@
 /**
  * Sensor card — ultrasonic distance and grayscale readings.
+ *
+ * Uses TransportProvider to route commands via HTTPS or BLE.
  */
 
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
 
 interface UltrasonicData {
   distance_cm: number;
   timestamp: string;
+}
+
+interface BleUltrasonicData {
+  distanceCm: number;
 }
 
 interface GrayscaleData {
@@ -24,15 +31,20 @@ export function SensorCard() {
   const [distance, setDistance] = useState<number | null>(null);
   const [grayscale, setGrayscale] = useState<GrayscaleData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sendCommand = useDeviceCommand();
 
   async function refresh() {
     setError(null);
     try {
       const [ultra, gray] = await Promise.all([
-        deviceApi<UltrasonicData>("/api/sensor/ultrasonic"),
-        deviceApi<GrayscaleData>("/api/sensor/grayscale"),
+        sendCommand<BleUltrasonicData | UltrasonicData>(ENDPOINTS.ULTRASONIC),
+        sendCommand<GrayscaleData>(ENDPOINTS.GRAYSCALE),
       ]);
-      setDistance(ultra.distance_cm);
+      if ("distanceCm" in ultra) {
+        setDistance(ultra.distanceCm);
+      } else {
+        setDistance(ultra.distance_cm);
+      }
       setGrayscale(gray);
     } catch (err) {
       setError((err as Error).message);
