@@ -42,14 +42,20 @@ app/
     device/
       _layout.tsx        Device detail route group layout
       [id].tsx           Per-device control screen (cards)
-components/              Reusable UI components (cards, command input)
+components/              Reusable UI components (cards, command input, pairing flows)
 constants/
   config.ts              API URLs, timeouts (env-var overridable)
 lib/
   api.ts                 Typed fetch wrapper with per-URL auth injection
   auth.tsx               Auth context + secure token storage + pairing helpers
   ble.ts                 BLE service interface + mock implementation
+  ble-protocol.ts        Binary frame codec for BLE GATT
+  ble-session.ts         AES-128-CCM session encryption + HKDF key derivation
+  transport.tsx          Hybrid transport provider: BLE ↔ HTTPS switching
   devices.ts             Fleet device hook and mappers
+  endpoints.ts           API endpoint string constants
+  usePolling.ts          Reusable polling hook
+  useDeviceCommand.ts    Transport-switching command hook
   theme.ts               Dark theme palette, spacing, typography
 ```
 

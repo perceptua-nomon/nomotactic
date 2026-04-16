@@ -8,8 +8,8 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { useTransport } from "@/lib/transport";
 import { borderRadius, colors, spacing } from "@/lib/theme";
+import { useTransport } from "@/lib/transport";
 
 export function ConnectionIndicator() {
   const { mode, deviceId } = useTransport();

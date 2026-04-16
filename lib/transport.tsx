@@ -10,6 +10,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 import { deviceApi } from "@/lib/api";
 import type { BleService } from "@/lib/ble";
 import { createBleService } from "@/lib/ble";
+import { ENDPOINTS } from "@/lib/endpoints";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,7 +25,6 @@ export interface TransportState {
   isConnected: boolean;
   deviceId: string | null;
   bleService: BleService | null;
-  wifiAvailable: boolean;
 }
 
 /** Context value with state + actions. */
@@ -81,7 +81,6 @@ export function TransportProvider({ children }: TransportProviderProps) {
   const [mode, setMode] = useState<TransportMode>("https");
   const [isConnected, setIsConnected] = useState(true);
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [wifiAvailable, setWifiAvailable] = useState(false);
   const bleServiceRef = useRef<BleService | null>(null);
 
   const connectViaBle = useCallback(
@@ -107,7 +106,6 @@ export function TransportProvider({ children }: TransportProviderProps) {
         const wifiStatus = await ble.getWifiStatus();
         if (wifiStatus.connected) {
           // Device already has WiFi — switch to HTTPS
-          setWifiAvailable(true);
           setMode("https");
           setIsConnected(true);
           return;
@@ -116,7 +114,6 @@ export function TransportProvider({ children }: TransportProviderProps) {
         // WiFi status check failed — stay on BLE
       }
 
-      setWifiAvailable(false);
       setMode("ble");
       setIsConnected(true);
     },
@@ -130,7 +127,6 @@ export function TransportProvider({ children }: TransportProviderProps) {
     setMode("disconnected");
     setIsConnected(false);
     setDeviceId(null);
-    setWifiAvailable(false);
   }, []);
 
   const sendCommand = useCallback(
@@ -156,12 +152,11 @@ export function TransportProvider({ children }: TransportProviderProps) {
       isConnected,
       deviceId,
       bleService: bleServiceRef.current,
-      wifiAvailable,
       connectViaBle,
       disconnectDevice,
       sendCommand,
     }),
-    [mode, isConnected, deviceId, wifiAvailable, connectViaBle, disconnectDevice, sendCommand],
+    [mode, isConnected, deviceId, connectViaBle, disconnectDevice, sendCommand],
   );
 
   return (
@@ -182,31 +177,31 @@ async function sendViaBle(
   params: Record<string, unknown>,
 ): Promise<unknown> {
   switch (method) {
-    case "/api/drive":
+    case ENDPOINTS.DRIVE:
       await ble.drive(
         params.speed_pct as number,
         (params.ttl_ms as number) ?? 500,
       );
       return { ok: true };
 
-    case "/api/steer":
+    case ENDPOINTS.STEER:
       await ble.steer(
         params.angle_deg as number,
         (params.ttl_ms as number) ?? 500,
       );
       return { ok: true };
 
-    case "/api/hat/motor/stop":
+    case ENDPOINTS.MOTOR_STOP:
       await ble.stopAllMotors();
       return { ok: true };
 
-    case "/api/hat/battery":
+    case ENDPOINTS.BATTERY:
       return ble.getBattery();
 
-    case "/api/sensor/ultrasonic":
+    case ENDPOINTS.ULTRASONIC:
       return ble.readUltrasonic();
 
-    case "/api/sensor/grayscale": {
+    case ENDPOINTS.GRAYSCALE: {
       const result = await ble.readGrayscale();
       return {
         channels: [0, 1, 2],
@@ -215,7 +210,7 @@ async function sendViaBle(
       };
     }
 
-    case "/api/hat/motor/speed": {
+    case ENDPOINTS.MOTOR_SPEED: {
       await ble.setMotorSpeed(
         params.channel as number,
         params.speed_pct as number,
@@ -224,7 +219,7 @@ async function sendViaBle(
       return { ok: true };
     }
 
-    case "/api/hat/servo/angle": {
+    case ENDPOINTS.SERVO_ANGLE: {
       await ble.setServoAngle(
         params.channel as number,
         params.angle_deg as number,

@@ -8,9 +8,9 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
-import { useOptionalTransport } from "@/lib/transport";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
 
 interface UltrasonicData {
   distance_cm: number;
@@ -31,26 +31,21 @@ export function SensorCard() {
   const [distance, setDistance] = useState<number | null>(null);
   const [grayscale, setGrayscale] = useState<GrayscaleData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const transport = useOptionalTransport();
+  const sendCommand = useDeviceCommand();
 
   async function refresh() {
     setError(null);
     try {
-      if (transport?.mode === "ble") {
-        const [ultra, gray] = await Promise.all([
-          transport.sendCommand("/api/sensor/ultrasonic", {}) as Promise<BleUltrasonicData>,
-          transport.sendCommand("/api/sensor/grayscale", {}) as Promise<GrayscaleData>,
-        ]);
+      const [ultra, gray] = await Promise.all([
+        sendCommand<BleUltrasonicData | UltrasonicData>(ENDPOINTS.ULTRASONIC),
+        sendCommand<GrayscaleData>(ENDPOINTS.GRAYSCALE),
+      ]);
+      if ("distanceCm" in ultra) {
         setDistance(ultra.distanceCm);
-        setGrayscale(gray);
       } else {
-        const [ultra, gray] = await Promise.all([
-          deviceApi<UltrasonicData>("/api/sensor/ultrasonic"),
-          deviceApi<GrayscaleData>("/api/sensor/grayscale"),
-        ]);
         setDistance(ultra.distance_cm);
-        setGrayscale(gray);
       }
+      setGrayscale(gray);
     } catch (err) {
       setError((err as Error).message);
     }

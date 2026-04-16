@@ -11,24 +11,26 @@
 
 import { Platform } from "react-native";
 
-import { BleSession, deriveSessionKey } from "@/lib/ble-session";
 import {
-  type BleFrame,
-  Opcode,
-  ResponseOpcode,
-  decodeResponse,
-  decodeBatteryResult,
-  decodeError,
-  decodeGrayscaleResult,
-  decodeHealthResult,
-  decodeUltrasonicResult,
-  encodeDrivePayload,
-  encodeRequest,
-  encodeSetMotorSpeedPayload,
-  encodeSetServoAnglePayload,
-  encodeSteerPayload,
-  mvToVoltage,
+    type BleFrame,
+    Opcode,
+    ResponseOpcode,
+    WifiCommand,
+    WifiState,
+    decodeBatteryResult,
+    decodeError,
+    decodeGrayscaleResult,
+    decodeHealthResult,
+    decodeResponse,
+    decodeUltrasonicResult,
+    encodeDrivePayload,
+    encodeRequest,
+    encodeSetMotorSpeedPayload,
+    encodeSetServoAnglePayload,
+    encodeSteerPayload,
+    mvToVoltage,
 } from "@/lib/ble-protocol";
+import { BleSession, deriveSessionKey } from "@/lib/ble-session";
 
 // ---------------------------------------------------------------------------
 // GATT UUIDs (from nomopractic services.rs / project-context.md)
@@ -172,20 +174,20 @@ export interface BleService {
 }
 
 // ---------------------------------------------------------------------------
-// Mock implementation (development / web)
+// Shared base class
 // ---------------------------------------------------------------------------
 
-const MOCK_DEVICES: BleDevice[] = [
-  { id: "nomon-0001", name: "nomon-alpha", rssi: -42 },
-  { id: "nomon-0002", name: "nomon-beta", rssi: -68 },
-];
-
-export class MockBleService implements BleService {
-  private _status: ConnectionStatus = "disconnected";
-  private _listeners: Set<StatusListener> = new Set();
-  private _connectedId: string | null = null;
-  private _session: BleSession | null = null;
-  private _seqNr = 0;
+/**
+ * Abstract base class implementing the typed command wrappers.
+ *
+ * Subclasses only need to provide the transport-specific methods:
+ * `scan`, `connect`, `disconnect`, `pair`, `sendCommand`,
+ * `scanWifi`, `connectWifi`, and `getWifiStatus`.
+ */
+abstract class BaseBleService implements BleService {
+  protected _status: ConnectionStatus = "disconnected";
+  protected _listeners: Set<StatusListener> = new Set();
+  protected _session: BleSession | null = null;
 
   get status(): ConnectionStatus {
     return this._status;
@@ -195,54 +197,14 @@ export class MockBleService implements BleService {
     return this._session;
   }
 
-  async scan(timeoutMs = 3000): Promise<BleDevice[]> {
-    this._setStatus("scanning");
-    await delay(Math.min(timeoutMs, 1500));
-    this._setStatus("disconnected");
-    return [...MOCK_DEVICES];
-  }
-
-  async connect(deviceId: string): Promise<void> {
-    const device = MOCK_DEVICES.find((d) => d.id === deviceId);
-    if (!device) {
-      throw new Error(`Unknown device: ${deviceId}`);
-    }
-    this._setStatus("connecting");
-    await delay(800);
-    this._connectedId = deviceId;
-    this._setStatus("connected");
-  }
-
-  async disconnect(): Promise<void> {
-    this._connectedId = null;
-    this._session = null;
-    this._setStatus("disconnected");
-  }
-
-  async pair(secret: string): Promise<PairingResult> {
-    if (this._status !== "connected" || !this._connectedId) {
-      throw new Error("Must be connected before pairing");
-    }
-    await delay(500);
-    const salt = new Uint8Array(16);
-    for (let i = 0; i < 16; i++) salt[i] = i;
-    const sessionKey = deriveSessionKey(secret, salt);
-    const jwt = "mock.jwt.token";
-    this._session = new BleSession(sessionKey, jwt);
-    this._setStatus("paired");
-    return { jwt, salt };
-  }
-
-  async sendCommand(opcode: Opcode, payload: Uint8Array): Promise<BleFrame> {
-    if (this._status !== "paired") {
-      throw new Error("Not paired — cannot send commands");
-    }
-    await delay(100);
-    this._seqNr = (this._seqNr + 1) & 0xff;
-    const responseOpcode = opcode | 0x80;
-    const mockPayload = this._mockResponsePayload(opcode);
-    return { opcode: responseOpcode, seqNr: this._seqNr, payload: mockPayload };
-  }
+  abstract scan(timeoutMs?: number): Promise<BleDevice[]>;
+  abstract connect(deviceId: string): Promise<void>;
+  abstract disconnect(): Promise<void>;
+  abstract pair(secret: string): Promise<PairingResult>;
+  abstract sendCommand(opcode: Opcode, payload: Uint8Array): Promise<BleFrame>;
+  abstract scanWifi(): Promise<WifiNetwork[]>;
+  abstract connectWifi(ssid: string, password: string): Promise<boolean>;
+  abstract getWifiStatus(): Promise<WifiStatus>;
 
   async getBattery(): Promise<{ voltageMv: number; voltageV: number }> {
     const frame = await this.sendCommand(Opcode.GetBattery, new Uint8Array(0));
@@ -293,6 +255,83 @@ export class MockBleService implements BleService {
     return decodeHealthResult(frame.payload);
   }
 
+  onStatusChange(listener: StatusListener): () => void {
+    this._listeners.add(listener);
+    return () => {
+      this._listeners.delete(listener);
+    };
+  }
+
+  protected _setStatus(next: ConnectionStatus): void {
+    this._status = next;
+    for (const listener of this._listeners) {
+      listener(next);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock implementation (development / web)
+// ---------------------------------------------------------------------------
+
+const MOCK_DEVICES: BleDevice[] = [
+  { id: "nomon-0001", name: "nomon-alpha", rssi: -42 },
+  { id: "nomon-0002", name: "nomon-beta", rssi: -68 },
+];
+
+export class MockBleService extends BaseBleService {
+  private _connectedId: string | null = null;
+  private _seqNr = 0;
+
+  async scan(timeoutMs = 3000): Promise<BleDevice[]> {
+    this._setStatus("scanning");
+    await delay(Math.min(timeoutMs, 1500));
+    this._setStatus("disconnected");
+    return [...MOCK_DEVICES];
+  }
+
+  async connect(deviceId: string): Promise<void> {
+    const device = MOCK_DEVICES.find((d) => d.id === deviceId);
+    if (!device) {
+      throw new Error(`Unknown device: ${deviceId}`);
+    }
+    this._setStatus("connecting");
+    await delay(800);
+    this._connectedId = deviceId;
+    this._setStatus("connected");
+  }
+
+  async disconnect(): Promise<void> {
+    this._connectedId = null;
+    this._session = null;
+    this._setStatus("disconnected");
+  }
+
+  async pair(secret: string): Promise<PairingResult> {
+    if (this._status !== "connected" || !this._connectedId) {
+      throw new Error("Must be connected before pairing");
+    }
+    await delay(500);
+    const salt = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) salt[i] = i;
+    const sessionKey = deriveSessionKey(secret, salt);
+    const jwt = "mock.jwt.token";
+    this._session = new BleSession(sessionKey, jwt);
+    this._setStatus("paired");
+    return { jwt, salt };
+  }
+
+  async sendCommand(opcode: Opcode, payload: Uint8Array): Promise<BleFrame> {
+    if (this._status !== "paired") {
+      throw new Error("Not paired — cannot send commands");
+    }
+    await delay(100);
+    this._seqNr = (this._seqNr + 1) & 0xff;
+    const responseOpcode = opcode | 0x80;
+    const mockPayload = this._mockResponsePayload(opcode);
+    return { opcode: responseOpcode, seqNr: this._seqNr, payload: mockPayload };
+  }
+
   async scanWifi(): Promise<WifiNetwork[]> {
     await delay(1000);
     return [
@@ -309,20 +348,6 @@ export class MockBleService implements BleService {
   async getWifiStatus(): Promise<WifiStatus> {
     await delay(200);
     return { connected: true, ssid: "HomeNetwork", signalStrength: -45 };
-  }
-
-  onStatusChange(listener: StatusListener): () => void {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  }
-
-  private _setStatus(next: ConnectionStatus): void {
-    this._status = next;
-    for (const listener of this._listeners) {
-      listener(next);
-    }
   }
 
   private _mockResponsePayload(opcode: Opcode): Uint8Array {
@@ -385,22 +410,11 @@ export class MockBleService implements BleService {
  * Lazily imports react-native-ble-plx to avoid bundling on web.
  * All BLE operations go through the BleManager instance.
  */
-export class RealBleService implements BleService {
-  private _status: ConnectionStatus = "disconnected";
-  private _listeners: Set<StatusListener> = new Set();
-  private _session: BleSession | null = null;
+export class RealBleService extends BaseBleService {
   private _seqNr = 0;
   private _manager: BleManagerInstance | null = null;
   private _device: BleDeviceInstance | null = null;
   private _commandResponsePromise: CommandResponseState | null = null;
-
-  get status(): ConnectionStatus {
-    return this._status;
-  }
-
-  get session(): BleSession | null {
-    return this._session;
-  }
 
   private async getManager(): Promise<BleManagerInstance> {
     if (this._manager) return this._manager;
@@ -646,67 +660,55 @@ export class RealBleService implements BleService {
     }
   }
 
-  async getBattery(): Promise<{ voltageMv: number; voltageV: number }> {
-    const frame = await this.sendCommand(Opcode.GetBattery, new Uint8Array(0));
-    const result = decodeBatteryResult(frame.payload);
-    return { voltageMv: result.voltageMv, voltageV: mvToVoltage(result.voltageMv) };
-  }
-
-  async drive(speedPct: number, ttlMs = 500): Promise<void> {
-    await this.sendCommand(Opcode.Drive, encodeDrivePayload(speedPct, ttlMs));
-  }
-
-  async steer(angleDeg: number, ttlMs = 500): Promise<void> {
-    await this.sendCommand(Opcode.Steer, encodeSteerPayload(angleDeg, ttlMs));
-  }
-
-  async setMotorSpeed(channel: number, speedPct: number, ttlMs = 500): Promise<void> {
-    await this.sendCommand(
-      Opcode.SetMotorSpeed,
-      encodeSetMotorSpeedPayload(channel, speedPct, ttlMs),
-    );
-  }
-
-  async stopAllMotors(): Promise<void> {
-    await this.sendCommand(Opcode.StopAllMotors, new Uint8Array(0));
-  }
-
-  async setServoAngle(channel: number, angleDeg: number, ttlMs = 500): Promise<void> {
-    await this.sendCommand(
-      Opcode.SetServoAngle,
-      encodeSetServoAnglePayload(channel, angleDeg, ttlMs),
-    );
-  }
-
-  async readUltrasonic(): Promise<{ distanceCm: number }> {
-    const frame = await this.sendCommand(Opcode.ReadUltrasonic, new Uint8Array(0));
-    const result = decodeUltrasonicResult(frame.payload);
-    return { distanceCm: result.distanceX10 / 10 };
-  }
-
-  async readGrayscale(): Promise<{ values: number[] }> {
-    const frame = await this.sendCommand(Opcode.ReadGrayscale, new Uint8Array(0));
-    const result = decodeGrayscaleResult(frame.payload);
-    return { values: [result.v0, result.v1, result.v2] };
-  }
-
-  async getHealth(): Promise<{ status: number; uptimeS: number }> {
-    const frame = await this.sendCommand(Opcode.GetHealth, new Uint8Array(0));
-    return decodeHealthResult(frame.payload);
-  }
-
   async scanWifi(): Promise<WifiNetwork[]> {
+    return this.wifiExchange(
+      new Uint8Array([WifiCommand.Scan]),
+      parseWifiScanResult,
+      15000,
+    );
+  }
+
+  async connectWifi(ssid: string, password: string): Promise<boolean> {
+    const ssidBytes = new TextEncoder().encode(ssid);
+    const passBytes = new TextEncoder().encode(password);
+    const cmd = new Uint8Array(1 + 1 + ssidBytes.length + 1 + passBytes.length);
+    cmd[0] = WifiCommand.Connect;
+    cmd[1] = ssidBytes.length;
+    cmd.set(ssidBytes, 2);
+    cmd[2 + ssidBytes.length] = passBytes.length;
+    cmd.set(passBytes, 2 + ssidBytes.length + 1);
+    return this.wifiExchange(cmd, (raw) => raw[1] === 0x01, 30000);
+  }
+
+  async getWifiStatus(): Promise<WifiStatus> {
+    return this.wifiExchange(
+      new Uint8Array([WifiCommand.Status]),
+      parseWifiStatus,
+      5000,
+    );
+  }
+
+  /**
+   * Send a WiFi command over GATT and wait for the result notification.
+   *
+   * Subscribes to the WiFi Result characteristic, writes the command to the
+   * WiFi Command characteristic, and resolves with the parsed result or
+   * rejects on timeout / error.
+   */
+  private async wifiExchange<T>(
+    cmd: Uint8Array,
+    parseResult: (data: Uint8Array) => T,
+    timeoutMs: number,
+  ): Promise<T> {
     if (!this._device) {
-      throw new Error("Not connected — cannot scan WiFi");
+      throw new Error("Not connected — cannot perform WiFi operation");
     }
-
     const device = this._device;
-
-    return new Promise<WifiNetwork[]>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         sub?.remove();
-        reject(new Error("WiFi scan timed out"));
-      }, 15000);
+        reject(new Error("WiFi operation timed out"));
+      }, timeoutMs);
 
       const sub = device.monitorCharacteristicForService(
         WIFI_SERVICE_UUID,
@@ -717,7 +719,7 @@ export class RealBleService implements BleService {
             sub?.remove();
             reject(
               new Error(
-                `WiFi scan error: ${error instanceof Error ? error.message : String(error)}`,
+                `WiFi error: ${error instanceof Error ? error.message : String(error)}`,
               ),
             );
             return;
@@ -727,78 +729,13 @@ export class RealBleService implements BleService {
             sub?.remove();
             try {
               const raw = base64ToBytes(characteristic.value);
-              const networks = parseWifiScanResult(raw);
-              resolve(networks);
+              resolve(parseResult(raw));
             } catch (err) {
               reject(err instanceof Error ? err : new Error(String(err)));
             }
           }
         },
       );
-
-      const scanCmd = bytesToBase64(new Uint8Array([0x01]));
-      device
-        .writeCharacteristicWithResponseForService(
-          WIFI_SERVICE_UUID,
-          WIFI_COMMAND_CHAR_UUID,
-          scanCmd,
-        )
-        .catch((err: unknown) => {
-          clearTimeout(timeout);
-          reject(
-            new Error(
-              `WiFi scan write failed: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
-        });
-    });
-  }
-
-  async connectWifi(ssid: string, password: string): Promise<boolean> {
-    if (!this._device) {
-      throw new Error("Not connected — cannot provision WiFi");
-    }
-
-    const device = this._device;
-
-    return new Promise<boolean>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        sub?.remove();
-        reject(new Error("WiFi connect timed out"));
-      }, 30000);
-
-      const sub = device.monitorCharacteristicForService(
-        WIFI_SERVICE_UUID,
-        WIFI_RESULT_CHAR_UUID,
-        (error: unknown, characteristic: CharacteristicInstance | null) => {
-          if (error) {
-            clearTimeout(timeout);
-            sub?.remove();
-            reject(
-              new Error(
-                `WiFi connect error: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-            );
-            return;
-          }
-          if (characteristic?.value) {
-            clearTimeout(timeout);
-            sub?.remove();
-            const raw = base64ToBytes(characteristic.value);
-            // raw[0] is result type (0x02 = connect), raw[1] is success byte
-            resolve(raw[1] === 0x01);
-          }
-        },
-      );
-
-      const ssidBytes = new TextEncoder().encode(ssid);
-      const passBytes = new TextEncoder().encode(password);
-      const cmd = new Uint8Array(1 + 1 + ssidBytes.length + 1 + passBytes.length);
-      cmd[0] = 0x02;
-      cmd[1] = ssidBytes.length;
-      cmd.set(ssidBytes, 2);
-      cmd[2 + ssidBytes.length] = passBytes.length;
-      cmd.set(passBytes, 2 + ssidBytes.length + 1);
 
       const cmdB64 = bytesToBase64(cmd);
       device
@@ -811,79 +748,11 @@ export class RealBleService implements BleService {
           clearTimeout(timeout);
           reject(
             new Error(
-              `WiFi connect write failed: ${err instanceof Error ? err.message : String(err)}`,
+              `WiFi write failed: ${err instanceof Error ? err.message : String(err)}`,
             ),
           );
         });
     });
-  }
-
-  async getWifiStatus(): Promise<WifiStatus> {
-    if (!this._device) {
-      throw new Error("Not connected — cannot read WiFi status");
-    }
-
-    const device = this._device;
-
-    return new Promise<WifiStatus>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        sub?.remove();
-        reject(new Error("WiFi status read timed out"));
-      }, 5000);
-
-      const sub = device.monitorCharacteristicForService(
-        WIFI_SERVICE_UUID,
-        WIFI_RESULT_CHAR_UUID,
-        (error: unknown, characteristic: CharacteristicInstance | null) => {
-          if (error) {
-            clearTimeout(timeout);
-            sub?.remove();
-            reject(
-              new Error(
-                `WiFi status error: ${error instanceof Error ? error.message : String(error)}`,
-              ),
-            );
-            return;
-          }
-          if (characteristic?.value) {
-            clearTimeout(timeout);
-            sub?.remove();
-            const raw = base64ToBytes(characteristic.value);
-            resolve(parseWifiStatus(raw));
-          }
-        },
-      );
-
-      const statusCmd = bytesToBase64(new Uint8Array([0x03]));
-      device
-        .writeCharacteristicWithResponseForService(
-          WIFI_SERVICE_UUID,
-          WIFI_COMMAND_CHAR_UUID,
-          statusCmd,
-        )
-        .catch((err: unknown) => {
-          clearTimeout(timeout);
-          reject(
-            new Error(
-              `WiFi status write failed: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          );
-        });
-    });
-  }
-
-  onStatusChange(listener: StatusListener): () => void {
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
-  }
-
-  private _setStatus(next: ConnectionStatus): void {
-    this._status = next;
-    for (const listener of this._listeners) {
-      listener(next);
-    }
   }
 }
 
@@ -941,7 +810,7 @@ interface BleDeviceInstance {
     serviceUUID: string,
     characteristicUUID: string,
     callback: (error: unknown, characteristic: CharacteristicInstance | null) => void,
-  ): void;
+  ): { remove: () => void };
 }
 
 interface CharacteristicInstance {
@@ -1013,7 +882,7 @@ function parseWifiStatus(data: Uint8Array): WifiStatus {
   if (data.length < 2) {
     return { connected: false, ssid: null, signalStrength: null };
   }
-  const connected = data[1] === 0x02;
+  const connected = data[1] === WifiState.Connected;
   if (!connected || data.length < 4) {
     return { connected, ssid: null, signalStrength: null };
   }

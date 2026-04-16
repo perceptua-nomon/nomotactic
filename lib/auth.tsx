@@ -59,43 +59,43 @@ const STORAGE_KEY_REFRESH = "nomon_refresh_token";
 const STORAGE_KEY_DEVICE_ACCESS = "nomon_device_access_token";
 const STORAGE_KEY_DEVICE_REFRESH = "nomon_device_refresh_token";
 
-async function saveToken(key: string, value: string): Promise<void> {
-  if (Platform.OS === "web") {
-    try {
-      localStorage.setItem(key, value);
-    } catch {
-      // localStorage unavailable (e.g. private browsing quota exceeded)
+const storage = {
+  async set(key: string, value: string): Promise<void> {
+    if (Platform.OS === "web") {
+      try {
+        localStorage.setItem(key, value);
+      } catch {
+        // localStorage unavailable (e.g. private browsing quota exceeded)
+      }
+    } else {
+      const SecureStore = await import("expo-secure-store");
+      await SecureStore.setItemAsync(key, value);
     }
-  } else {
+  },
+  async get(key: string): Promise<string | null> {
+    if (Platform.OS === "web") {
+      try {
+        return localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    }
     const SecureStore = await import("expo-secure-store");
-    await SecureStore.setItemAsync(key, value);
-  }
-}
-
-async function getToken(key: string): Promise<string | null> {
-  if (Platform.OS === "web") {
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
+    return SecureStore.getItemAsync(key);
+  },
+  async remove(key: string): Promise<void> {
+    if (Platform.OS === "web") {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // noop
+      }
+    } else {
+      const SecureStore = await import("expo-secure-store");
+      await SecureStore.deleteItemAsync(key);
     }
-  }
-  const SecureStore = await import("expo-secure-store");
-  return SecureStore.getItemAsync(key);
-}
-
-async function deleteToken(key: string): Promise<void> {
-  if (Platform.OS === "web") {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      // noop
-    }
-  } else {
-    const SecureStore = await import("expo-secure-store");
-    await SecureStore.deleteItemAsync(key);
-  }
-}
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Context
@@ -136,10 +136,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Restore tokens from storage on mount
   useEffect(() => {
     (async () => {
-      const access = await getToken(STORAGE_KEY_ACCESS);
-      const refresh = await getToken(STORAGE_KEY_REFRESH);
-      const deviceAccess = await getToken(STORAGE_KEY_DEVICE_ACCESS);
-      const deviceRefresh = await getToken(STORAGE_KEY_DEVICE_REFRESH);
+      const access = await storage.get(STORAGE_KEY_ACCESS);
+      const refresh = await storage.get(STORAGE_KEY_REFRESH);
+      const deviceAccess = await storage.get(STORAGE_KEY_DEVICE_ACCESS);
+      const deviceRefresh = await storage.get(STORAGE_KEY_DEVICE_REFRESH);
       setState((prev) => ({
         ...prev,
         accessToken: access,
@@ -153,8 +153,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   async function persistTokens(tokens: TokenResponse): Promise<void> {
-    await saveToken(STORAGE_KEY_ACCESS, tokens.access_token);
-    await saveToken(STORAGE_KEY_REFRESH, tokens.refresh_token);
+    await storage.set(STORAGE_KEY_ACCESS, tokens.access_token);
+    await storage.set(STORAGE_KEY_REFRESH, tokens.refresh_token);
     setState((prev) => ({
       ...prev,
       accessToken: tokens.access_token,
@@ -163,8 +163,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   async function persistDeviceTokens(tokens: TokenResponse): Promise<void> {
-    await saveToken(STORAGE_KEY_DEVICE_ACCESS, tokens.access_token);
-    await saveToken(STORAGE_KEY_DEVICE_REFRESH, tokens.refresh_token);
+    await storage.set(STORAGE_KEY_DEVICE_ACCESS, tokens.access_token);
+    await storage.set(STORAGE_KEY_DEVICE_REFRESH, tokens.refresh_token);
     setState((prev) => ({
       ...prev,
       deviceAccessToken: tokens.access_token,
@@ -209,8 +209,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Server unreachable — continue with local cleanup
       }
     }
-    await deleteToken(STORAGE_KEY_ACCESS);
-    await deleteToken(STORAGE_KEY_REFRESH);
+    await storage.remove(STORAGE_KEY_ACCESS);
+    await storage.remove(STORAGE_KEY_REFRESH);
     setState((prev) => ({
       ...prev,
       accessToken: null,
@@ -236,8 +236,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [state.refreshToken, logout]);
 
   const unpairDevice = useCallback(async (): Promise<void> => {
-    await deleteToken(STORAGE_KEY_DEVICE_ACCESS);
-    await deleteToken(STORAGE_KEY_DEVICE_REFRESH);
+    await storage.remove(STORAGE_KEY_DEVICE_ACCESS);
+    await storage.remove(STORAGE_KEY_DEVICE_REFRESH);
     setState((prev) => ({
       ...prev,
       deviceAccessToken: null,

@@ -16,8 +16,8 @@ import { MotorCard } from "@/components/MotorCard";
 import { RoutineCard } from "@/components/RoutineCard";
 import { SensorCard } from "@/components/SensorCard";
 import { StatusCard } from "@/components/StatusCard";
-import { TransportProvider } from "@/lib/transport";
 import { colors, spacing, typography } from "@/lib/theme";
+import { TransportProvider } from "@/lib/transport";
 
 export default function DeviceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

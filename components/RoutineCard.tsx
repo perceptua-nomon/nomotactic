@@ -2,12 +2,14 @@
  * Routine card — start/stop explore routine, live status polling.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { usePolling } from "@/lib/usePolling";
 
 interface RoutineStatus {
   running: boolean;
@@ -24,7 +26,7 @@ export function RoutineCard() {
 
   const pollStatus = useCallback(async () => {
     try {
-      const data = await deviceApi<RoutineStatus>("/api/routine/status");
+      const data = await deviceApi<RoutineStatus>(ENDPOINTS.ROUTINE_STATUS);
       setStatus(data);
       setError(null);
     } catch (err) {
@@ -32,15 +34,11 @@ export function RoutineCard() {
     }
   }, []);
 
-  useEffect(() => {
-    pollStatus();
-    const interval = setInterval(pollStatus, 3_000);
-    return () => clearInterval(interval);
-  }, [pollStatus]);
+  usePolling(pollStatus, 3_000);
 
   async function startExplore() {
     try {
-      await deviceApi("/api/routine/start", {
+      await deviceApi(ENDPOINTS.ROUTINE_START, {
         method: "POST",
         body: { name: "explore" },
       });
@@ -52,7 +50,7 @@ export function RoutineCard() {
 
   async function stopRoutine() {
     try {
-      await deviceApi("/api/routine/stop", { method: "POST" });
+      await deviceApi(ENDPOINTS.ROUTINE_STOP, { method: "POST" });
       await pollStatus();
     } catch (err) {
       setError((err as Error).message);

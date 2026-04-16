@@ -48,6 +48,20 @@ export enum BleErrorCode {
   InternalError = 0x06,
 }
 
+/** WiFi provisioning command bytes written to the WiFi Command characteristic. */
+export enum WifiCommand {
+  Scan = 0x01,
+  Connect = 0x02,
+  Status = 0x03,
+}
+
+/** WiFi connection state reported in WiFi Status responses. */
+export enum WifiState {
+  Disconnected = 0x00,
+  Connecting = 0x01,
+  Connected = 0x02,
+}
+
 // ---------------------------------------------------------------------------
 // Frame header
 // ---------------------------------------------------------------------------

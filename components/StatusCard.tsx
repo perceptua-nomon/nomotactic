@@ -5,14 +5,15 @@
  * Uses TransportProvider to route commands via HTTPS or BLE.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { STATUS_REFRESH_INTERVAL_MS } from "@/constants/config";
-import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { colors, spacing, typography } from "@/lib/theme";
-import { useOptionalTransport } from "@/lib/transport";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
+import { usePolling } from "@/lib/usePolling";
 
 interface BatteryData {
   voltage_v: number;
@@ -27,28 +28,23 @@ interface BleBatteryData {
 export function StatusCard() {
   const [voltage, setVoltage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const transport = useOptionalTransport();
+  const sendCommand = useDeviceCommand();
 
   const fetchStatus = useCallback(async () => {
     try {
-      if (transport?.mode === "ble") {
-        const data = await transport.sendCommand("/api/hat/battery", {}) as BleBatteryData;
+      const data = await sendCommand<BleBatteryData | BatteryData>(ENDPOINTS.BATTERY);
+      if ("voltageV" in data) {
         setVoltage(data.voltageV);
       } else {
-        const data = await deviceApi<BatteryData>("/api/hat/battery");
         setVoltage(data.voltage_v);
       }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     }
-  }, [transport]);
+  }, [sendCommand]);
 
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, STATUS_REFRESH_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
+  usePolling(fetchStatus, STATUS_REFRESH_INTERVAL_MS);
 
   return (
     <ExpandableCard title="Status" defaultExpanded>

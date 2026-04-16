@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { deviceApi } from "@/lib/api";
+import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 interface StreamStatus {
@@ -23,7 +24,7 @@ export function CameraCard() {
   async function captureStill() {
     try {
       const filename = `capture_${Date.now()}.jpg`;
-      await deviceApi("/api/camera/capture", {
+      await deviceApi(ENDPOINTS.CAMERA_CAPTURE, {
         method: "POST",
         body: { filename },
       });
@@ -37,11 +38,11 @@ export function CameraCard() {
   async function toggleStream() {
     try {
       if (streamUrl) {
-        await deviceApi("/api/stream/stop", { method: "POST" });
+        await deviceApi(ENDPOINTS.STREAM_STOP, { method: "POST" });
         setStreamUrl(null);
         setFeedback("Stream stopped");
       } else {
-        const status = await deviceApi<StreamStatus>("/api/stream/start", {
+        const status = await deviceApi<StreamStatus>(ENDPOINTS.STREAM_START, {
           method: "POST",
           body: {},
         });
