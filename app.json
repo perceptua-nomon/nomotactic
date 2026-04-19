@@ -11,8 +11,10 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "nomon uses Bluetooth to discover, pair with, and control your robot."
-      }
+        "NSBluetoothAlwaysUsageDescription": "nomon uses Bluetooth to discover, pair with, and control your robot.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "app.nomotactic"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +28,9 @@
       "permissions": [
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN"
       ]
     },
     "web": {

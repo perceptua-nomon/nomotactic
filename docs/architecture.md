@@ -73,7 +73,7 @@ on fleet discovery and pairing.
 | **Web, unauthenticated** | Landing page (hero, features, CTA to login) |
 | **Web, authenticated** | Fleet dashboard. No Bluetooth features. Motor controls hidden (no BLE fallback). HTTPS only. |
 | **Mobile, WiFi connected** | Full device control: motors, camera, sensors, settings, calibration. HTTPS transport. |
-| **Mobile, BLE only** | Basic control: motor commands, servo, battery, sensors via BLE binary protocol. Camera/audio/calibration/routines unavailable (require HTTPS). |
+| **Mobile, BLE only** | Basic control: motor commands, servo, battery, sensors via NDJSON over BLE (same JSON format as the HTTPS API). Camera/audio/calibration/routines unavailable (require HTTPS). |
 | **Mobile, BLE → WiFi transition** | After BLE pairing, app exchanges WiFi credentials over BLE. Pi joins WiFi. App switches to HTTPS for full feature set. JWT from BLE pairing is reused. |
 
 Platform detection uses `Platform.OS` from React Native. Feature visibility
@@ -147,7 +147,8 @@ interface BleService {
   scan(): Promise<Device[]>
   connect(deviceId: string): Promise<void>
   disconnect(): Promise<void>
-  pair(secret: string): Promise<PairingResult>
+  authenticate(): Promise<string>
+  sendJsonCommand(method: string, params: object): Promise<object>
   drive(speedPct: number, ttlMs?: number): Promise<void>
   steer(angleDeg: number, ttlMs?: number): Promise<void>
   getBattery(): Promise<{ voltageMv: number }>
@@ -160,10 +161,10 @@ Phase 1 shipped `MockBleService` — all methods return stub data (web platform)
 Phase 2 (complete) added `RealBleService` using `react-native-ble-plx` with:
 
 - BLE device discovery by nomon GATT service UUID
-- Binary protocol codec (`lib/ble-protocol.ts`) matching nomopractic ADR-002
-- AES-128-CCM session encryption (`@noble/ciphers`)
-- HKDF-SHA256 key derivation (`@noble/hashes`)
-- WiFi provisioning flow over BLE GATT characteristics
+- OS-level Bluetooth passkey pairing (6-digit code; no app-layer crypto)
+- NDJSON relay over single GATT service (2 characteristics)
+- `authenticate()` IPC call after bonding → JWT
+- WiFi provisioning via standard IPC methods over NDJSON
 - Hybrid transport layer (`lib/transport.ts`) for BLE → HTTPS switching
 
 Web platform always receives `MockBleService` (BLE is mobile-only).
@@ -181,9 +182,9 @@ Web platform always receives `MockBleService` (BLE is mobile-only).
 │  └───────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
 
-  BLE path (binary protocol):                 HTTPS path (JSON):
+  BLE path (NDJSON chunks):                  HTTPS path (JSON):
   nomotactic                                  nomotactic
-   │ BLE GATT write (binary frame)             │ fetch() + JSON
+   │ BLE GATT write (NDJSON chunks)            │ fetch() + JSON
    └─▶ nomopractic BLE GATT server              └─▶ nomothetic REST API
        │ ble/bridge.rs → handler.rs                  │ HatClient → IPC
        └─▶ HAT hardware                               └─▶ nomopractic → HAT
@@ -211,11 +212,7 @@ layout (see [ADR-002](adr/002-ai-ready-ux.md)):
 - `react-native-safe-area-context` (safe area insets)
 - `react-native-screens` (native navigation)
 - `react-native-gesture-handler` (gesture support)
-
-**To add in Phase 2 (BLE Integration):**
 - `react-native-ble-plx` (BLE GATT client for Android/iOS)
-- `@noble/hashes` (HKDF-SHA256 key derivation)
-- `@noble/ciphers` (AES-128-CCM session encryption)
 
 **No additional UI libraries.** All components built with core RN primitives
 (`View`, `Text`, `TextInput`, `Pressable`, `ScrollView`, `Platform`).

@@ -29,8 +29,8 @@ export interface TransportState {
 
 /** Context value with state + actions. */
 interface TransportContextValue extends TransportState {
-  /** Connect via BLE: pair → check WiFi → provision if available → switch. */
-  connectViaBle: (deviceId: string, secret: string) => Promise<void>;
+  /** Connect via BLE: OS passkey pairing → authenticate → check WiFi. */
+  connectViaBle: (deviceId: string) => Promise<void>;
 
   /** Disconnect from the current device. */
   disconnectDevice: () => Promise<void>;
@@ -84,7 +84,7 @@ export function TransportProvider({ children }: TransportProviderProps) {
   const bleServiceRef = useRef<BleService | null>(null);
 
   const connectViaBle = useCallback(
-    async (targetDeviceId: string, secret: string) => {
+    async (targetDeviceId: string) => {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
 
@@ -96,15 +96,17 @@ export function TransportProvider({ children }: TransportProviderProps) {
         }
       });
 
-      // Connect and pair
+      // Connect — OS handles passkey pairing
       await ble.connect(targetDeviceId);
-      await ble.pair(secret);
+
+      // Authenticate to get JWT
+      await ble.authenticate();
       setDeviceId(targetDeviceId);
 
       // Check WiFi availability — try to provision
       try {
         const wifiStatus = await ble.getWifiStatus();
-        if (wifiStatus.connected) {
+        if (wifiStatus.state === "connected") {
           // Device already has WiFi — switch to HTTPS
           setMode("https");
           setIsConnected(true);

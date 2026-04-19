@@ -11,6 +11,7 @@
 | 1.5 | BLE Abstraction Stubs | ✅ Complete |
 | 1.6 | AI-Ready Command Input | ✅ Complete |
 | 2 | BLE Integration | ✅ Complete |
+| 2.1 | BLE Simplification | ✅ Complete |
 
 ---
 
@@ -22,8 +23,8 @@ Phases 1 and 2 are complete. The app has:
 - JWT auth flow with expo-secure-store (mobile) / localStorage (web)
 - Device control dashboard with 5 expandable card components
 - Web landing page for unauthenticated visitors
-- BLE device discovery, pairing, and encrypted command interface
-- Binary protocol codec and AES-128-CCM session encryption
+- BLE device discovery, OS passkey pairing, and link-layer encrypted transport
+- NDJSON relay over BLE (same format as HTTPS API — no custom codec or encryption)
 - Hybrid transport layer (BLE ↔ HTTPS auto-switching)
 - WiFi provisioning over BLE
 - Connection state indicator with auto-reconnect
@@ -202,7 +203,7 @@ implementation.
 
 ## Future
 
-### Phase 2 — BLE Integration (Planned)
+### Phase 2 — BLE Integration ✅ Complete
 
 **Goal:** Implement real BLE connectivity for device discovery, pairing,
 and basic control commands. BLE is the primary transport on mobile when WiFi
@@ -211,8 +212,9 @@ users are HTTPS-only (no BLE).
 
 **Architecture decisions:**
 - nomopractic ADR-001: BLE GATT server in nomopractic
-- nomopractic ADR-002: Binary protocol for BLE GATT
-- nomopractic ADR-003: BLE security model
+- nomopractic ADR-002: Binary protocol for BLE GATT ⚠️ Superseded by ADR-004
+- nomopractic ADR-003: BLE security model ⚠️ Superseded by ADR-004
+- nomopractic ADR-004: BLE Simplification — Native OS Pairing + NDJSON Relay ✅ (implemented in Phase 2.1)
 
 **Cross-repo dependencies:**
 - nomopractic Phase 13: BLE GATT server (must be deployed first)
@@ -247,6 +249,8 @@ limitation documented in architecture.md.
       `MockBleService` on web
 - [x] Platform guard: `Platform.OS === 'web'` returns mock; native returns real
 - [x] BLE permission request flow (Android 12+ runtime permissions)
+
+> ⚠️ **Phases 2.2–2.8 describe work superseded by Phase 2.1.** The binary codec, AES-128-CCM encryption, and custom pairing ceremony described below were fully removed and replaced by OS-level passkey pairing and NDJSON relay. These sections are retained for historical reference only.
 
 #### 2.3 — Binary Protocol Codec (`lib/ble-protocol.ts`)
 
@@ -340,13 +344,117 @@ limitation documented in architecture.md.
 
 #### Phase 2 Exit Criteria
 - [x] BLE device discovery finds nomon devices on mobile
-- [x] BLE pairing with secret exchange + session encryption works
+- [x] OS passkey pairing replaces custom pairing ceremony (no app-layer secret exchange)
 - [x] Motor, servo, and sensor commands work over BLE
 - [x] WiFi credentials exchangeable over BLE; Pi joins WiFi
 - [x] Auto-switch from BLE to HTTPS when WiFi becomes available
 - [x] Connection indicator shows transport state
 - [x] Auto-reconnect on BLE disconnect
 - [x] Web users unaffected (HTTPS only, motor controls hidden)
+- [x] `npx expo lint` clean
+- [x] No third-party UI component libraries added
+
+---
+
+### Phase 2.1 — BLE Simplification ✅ Complete
+
+**Goal:** Replace the custom BLE binary protocol, AES-128-CCM encryption,
+and application-layer pairing ceremony with OS-level Bluetooth passkey
+pairing and plain NDJSON commands. Reduces ~1,400 lines of BLE client code
+to ~400 lines. The simplified BLE layer sends the same JSON format used by
+the HTTPS API client, making every IPC method automatically available.
+
+**Architecture decisions:**
+- nomopractic ADR-004: BLE Simplification — Native OS Pairing + JSON Relay
+- Supersedes: nomopractic ADR-002 (Binary Protocol), ADR-003 (BLE Security Model)
+
+**Cross-repo dependencies:**
+- nomopractic Phase 13.1: simplified GATT server (must be deployed first)
+- nomothetic Phase 18.1: pairing secret format change (6-digit numeric passkey)
+
+#### 2.1.1 — Delete Superseded Modules
+- [x] Delete `lib/ble-protocol.ts` — binary protocol codec (324 lines)
+- [x] Delete `lib/ble-session.ts` — AES-128-CCM + HKDF key derivation (172 lines)
+- [x] Delete `lib/ble-registration.ts` — pending registration state (38 lines)
+- [x] Remove `@noble/ciphers` and `@noble/hashes` from `package.json`
+      (no longer needed without app-layer crypto)
+- [x] Verify: `npx expo lint` clean after import cleanup
+
+#### 2.1.2 — Simplified BLE Service (`lib/ble.ts`)
+- [x] Remove imports of `ble-protocol`, `ble-session`
+- [x] Remove `ConnectionStatus` value `"paired"` — bonding is OS-managed;
+      status goes from `"connecting"` directly to `"connected"` after bonding
+- [x] Remove `PairingResult` type and `pair(secret)` method
+- [x] Remove `session` property and `BleSession` field from `BaseBleService`
+- [x] Remove `sendCommand(opcode, payload)` method (binary)
+- [x] Add `sendJsonCommand(method: string, params: object): Promise<object>`:
+  - Build NDJSON request: `{ id, method, params }`
+  - Chunk at (MTU − 3) boundary, write chunks to Command Write characteristic
+  - Subscribe to Response Notify; accumulate chunks until `\n`
+  - Parse JSON response; return `result` or throw on error
+  - Sequence ID management: monotonic string counter
+  - Timeout: 10 s default (configurable)
+- [x] Rewrite typed command helpers (`getBattery`, `drive`, `steer`, etc.)
+      to call `sendJsonCommand()` instead of binary encode → encrypt → write
+- [x] Add `authenticate(): Promise<string>`:
+  - Calls `sendJsonCommand("authenticate", {})`
+  - Returns JWT string
+  - Stores JWT in `expo-secure-store`
+- [x] Rewrite WiFi methods (`scanWifi`, `connectWifi`, `getWifiStatus`)
+      to call `sendJsonCommand("wifi_scan", ...)` etc. instead of custom
+      WiFi characteristic writes
+- [x] `GATT UUIDs`: remove pairing, WiFi, and status service/characteristic
+      UUIDs. Keep: service `e3a10001-...`, Command Write `e3a12001-...`,
+      Response Notify `e3a12002-...`
+- [x] Update `RealBleService.connect()`:
+  - Connect to device (OS triggers passkey pairing dialog automatically)
+  - Negotiate MTU (request 247)
+  - Discover the single nomon service + 2 characteristics
+  - Subscribe to Response Notify
+  - Set status to `"connected"`
+  - No custom pairing ceremony — bonding is OS-managed
+- [x] Update `MockBleService` for web/testing (same interface changes)
+
+#### 2.1.3 — Simplified Pairing Flow (`components/BlePairingFlow.tsx`)
+- [x] Remove secret input field (`TextInput` for pairing secret)
+- [x] Remove `blePairingSecret` and `setBlePairingSecret` state
+- [x] Simplified flow:
+  1. Scan for devices (existing)
+  2. User selects a device from the list (existing)
+  3. Call `ble.connect(deviceId)` — OS shows native passkey dialog
+  4. User enters 6-digit passkey on phone (OS handles UI)
+  5. Once connected + bonded, call `ble.authenticate()` to get JWT
+  6. Store JWT and navigate to device control
+- [x] Update `handleBlePair()` to:
+  - Connect (triggers OS pairing)
+  - Authenticate (get JWT via BLE)
+  - Store JWT via auth context
+  - Navigate to device control
+- [x] Remove `setPendingBleRegistration` import (module deleted)
+
+#### 2.1.4 — Transport Layer Update
+- [x] Update `lib/transport.ts` (if applicable):
+  - Remove references to `BleSession`
+  - Remove encryption/decryption from transport path
+  - BLE transport now sends/receives plain JSON (same format as HTTPS)
+
+#### 2.1.5 — Architecture Documentation
+- [x] Update `docs/architecture.md`:
+  - Platform Modes table: update "Mobile, BLE only" row — remove "binary
+    protocol" reference, note NDJSON commands
+  - BLE data flow: scan → connect → OS passkey → authenticate → JSON commands
+  - Remove references to `ble-protocol.ts`, `ble-session.ts`
+
+#### Phase 2.1 Exit Criteria
+- [x] BLE device discovery works (unchanged)
+- [x] OS passkey pairing replaces custom pairing ceremony
+- [x] NDJSON commands work over BLE (same format as HTTPS/IPC)
+- [x] `authenticate` returns JWT after bonding
+- [x] WiFi provisioning uses standard JSON methods
+- [x] NDJSON chunking handles responses exceeding BLE MTU
+- [x] Auto-reconnect preserves bonding (no re-pairing needed)
+- [x] Web users unaffected (HTTPS only)
+- [x] Crypto dependencies removed (`@noble/ciphers`, `@noble/hashes`)
 - [x] `npx expo lint` clean
 - [x] No third-party UI component libraries added
 

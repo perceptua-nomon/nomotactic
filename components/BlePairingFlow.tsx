@@ -1,10 +1,13 @@
 /**
- * BLE pairing flow — scan for nearby devices and pair via BLE.
+ * BLE pairing flow — scan for nearby devices and connect via OS passkey.
+ *
+ * OS-level Bluetooth passkey pairing replaces the old custom secret entry.
+ * After connection, the app authenticates with the device to get a JWT.
  */
 
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
@@ -15,10 +18,8 @@ export function BlePairingFlow() {
   const [bleDevices, setBleDevices] = useState<BleDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [blePairingDeviceId, setBlePairingDeviceId] = useState<string | null>(null);
-  const [blePairingSecret, setBlePairingSecret] = useState("");
-  const [blePairingError, setBlePairingError] = useState<string | null>(null);
-  const [isBlePairing, setIsBlePairing] = useState(false);
+  const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const bleServiceRef = React.useRef<BleService | null>(null);
 
@@ -26,6 +27,7 @@ export function BlePairingFlow() {
     setIsScanning(true);
     setBleDevices([]);
     setScanError(null);
+    setConnectError(null);
     try {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
@@ -42,23 +44,25 @@ export function BlePairingFlow() {
     }
   }
 
-  async function handleBlePair() {
-    if (!blePairingDeviceId || !blePairingSecret.trim()) return;
-    setIsBlePairing(true);
-    setBlePairingError(null);
+  async function handleDeviceConnect(deviceId: string) {
+    setConnectingDeviceId(deviceId);
+    setConnectError(null);
     try {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
-      await ble.connect(blePairingDeviceId);
-      await ble.pair(blePairingSecret.trim());
-      setBlePairingDeviceId(null);
-      setBlePairingSecret("");
-      router.push(`/(app)/device/${blePairingDeviceId}`);
+
+      // OS handles passkey pairing during connect.
+      await ble.connect(deviceId);
+
+      // Authenticate to get a JWT from the device.
+      await ble.authenticate();
+
+      setConnectingDeviceId(null);
+      router.push("/(app)/register-device");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "BLE pairing failed";
-      setBlePairingError(message);
-    } finally {
-      setIsBlePairing(false);
+      const message = err instanceof Error ? err.message : "Connection failed";
+      setConnectError(message);
+      setConnectingDeviceId(null);
     }
   }
 
@@ -82,54 +86,33 @@ export function BlePairingFlow() {
         <Text style={styles.errorText}>{scanError}</Text>
       )}
 
+      {connectError !== null && (
+        <Text style={styles.errorText}>{connectError}</Text>
+      )}
+
       {bleDevices.map((bd) => (
         <Pressable
           key={bd.id}
           style={[
             styles.deviceCard,
-            blePairingDeviceId === bd.id && styles.bleDeviceSelected,
+            connectingDeviceId === bd.id && styles.bleDeviceSelected,
           ]}
-          onPress={() => setBlePairingDeviceId(bd.id)}
+          onPress={() => handleDeviceConnect(bd.id)}
+          disabled={connectingDeviceId !== null}
         >
           <View style={styles.deviceHeader}>
             <Text style={styles.deviceName}>{bd.name ?? bd.id}</Text>
-            <Text style={styles.deviceDetail}>
-              {bd.rssi !== null ? `${bd.rssi} dBm` : ""}
-            </Text>
+            <View style={styles.deviceRight}>
+              <Text style={styles.deviceDetail}>
+                {bd.rssi !== null ? `${bd.rssi} dBm` : ""}
+              </Text>
+              {connectingDeviceId === bd.id && (
+                <Text style={styles.connectingText}>Connecting…</Text>
+              )}
+            </View>
           </View>
         </Pressable>
       ))}
-
-      {blePairingDeviceId !== null && (
-        <View style={styles.blePairForm}>
-          <TextInput
-            style={styles.input}
-            placeholder="Pairing secret"
-            placeholderTextColor={colors.textMuted}
-            value={blePairingSecret}
-            onChangeText={setBlePairingSecret}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry
-          />
-          {blePairingError !== null && (
-            <Text style={styles.errorText}>{blePairingError}</Text>
-          )}
-          <Pressable
-            style={({ pressed }) => [
-              styles.pairButton,
-              pressed && styles.buttonPressed,
-              isBlePairing && styles.buttonDisabled,
-            ]}
-            onPress={handleBlePair}
-            disabled={isBlePairing}
-          >
-            <Text style={styles.pairButtonText}>
-              {isBlePairing ? "Pairing\u2026" : "Pair via BLE"}
-            </Text>
-          </Pressable>
-        </View>
-      )}
     </ExpandableCard>
   );
 }
@@ -168,6 +151,11 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: "600",
   },
+  deviceRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   deviceDetail: {
     ...typography.caption,
   },
@@ -175,34 +163,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
   },
-  blePairForm: {
-    marginTop: spacing.sm,
-  },
-  input: {
-    backgroundColor: colors.background,
-    color: colors.text,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    fontSize: 16,
-    marginBottom: spacing.sm,
+  connectingText: {
+    ...typography.caption,
+    color: colors.primary,
+    fontWeight: "600",
   },
   errorText: {
     color: colors.error,
     fontSize: 14,
     marginBottom: spacing.sm,
-  },
-  pairButton: {
-    backgroundColor: colors.secondary,
-    borderRadius: borderRadius.sm,
-    paddingVertical: spacing.md,
-    alignItems: "center" as const,
-    marginTop: spacing.xs,
-  },
-  pairButtonText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: "600",
   },
 });
