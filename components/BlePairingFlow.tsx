@@ -1,46 +1,52 @@
 /**
- * BLE pairing flow — scan for nearby devices and connect via OS passkey.
+ * BLE paired devices — display paired devices and connect to them.
  *
- * OS-level Bluetooth passkey pairing replaces the old custom secret entry.
- * After connection, the app authenticates with the device to get a JWT.
+ * Uses native OS pairing. Devices must be bonded via OS Bluetooth settings (mobile)
+ * or paired via browser pairing dialog (web) before appearing in this list.
  */
 
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
+import { setDeviceTokenAccessors } from "@/lib/api";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
-export function BlePairingFlow() {
+interface BlePairingFlowProps {
+  onRefresh?: () => Promise<void>;
+}
+
+export function BlePairingFlow({ onRefresh }: BlePairingFlowProps) {
   const router = useRouter();
-  const [bleDevices, setBleDevices] = useState<BleDevice[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [pairedDevices, setPairedDevices] = useState<BleDevice[]>([]);
+  const [isLoadingPaired, setIsLoadingPaired] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
 
   const bleServiceRef = React.useRef<BleService | null>(null);
 
-  async function handleBleScan() {
-    setIsScanning(true);
-    setBleDevices([]);
-    setScanError(null);
-    setConnectError(null);
+  // Load paired devices on mount
+  useEffect(() => {
+    loadPairedDevices();
+  }, []);
+
+  async function loadPairedDevices() {
+    setIsLoadingPaired(true);
+    setError(null);
     try {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
-      const found = await ble.scan(5000);
-      setBleDevices(found);
-      if (found.length === 0) {
-        setScanError("No devices found. Make sure your nomon is powered on and nearby.");
-      }
+      const paired = await ble.getPairedDevices();
+      setPairedDevices(paired);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "BLE scan failed";
-      setScanError(message);
+      const message =
+        err instanceof Error ? err.message : "Failed to load paired devices";
+      setError(message);
     } finally {
-      setIsScanning(false);
+      setIsLoadingPaired(false);
     }
   }
 
@@ -51,11 +57,14 @@ export function BlePairingFlow() {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
 
-      // OS handles passkey pairing during connect.
+      // Connect to the paired device
       await ble.connect(deviceId);
 
-      // Authenticate to get a JWT from the device.
-      await ble.authenticate();
+      // Authenticate to get a JWT from the device
+      const token = await ble.authenticate();
+
+      // Wire BLE token into the device API accessors so `deviceApi` uses it
+      setDeviceTokenAccessors(() => (ble.token ?? null), async () => false);
 
       setConnectingDeviceId(null);
       router.push("/(app)/register-device");
@@ -66,75 +75,100 @@ export function BlePairingFlow() {
     }
   }
 
+  async function handleRefresh() {
+    await loadPairedDevices();
+    if (onRefresh) {
+      await onRefresh();
+    }
+  }
+
   return (
-    <ExpandableCard title="Scan for Nearby Devices" defaultExpanded={false}>
-      <Pressable
-        style={({ pressed }) => [
-          styles.scanButton,
-          pressed && styles.buttonPressed,
-          isScanning && styles.buttonDisabled,
-        ]}
-        onPress={handleBleScan}
-        disabled={isScanning}
-      >
-        <Text style={styles.scanButtonText}>
-          {isScanning ? "Scanning\u2026" : "Start BLE Scan"}
+    <ExpandableCard title="Paired Devices" defaultExpanded={true}>
+      <View style={styles.headerRow}>
+        <Text style={styles.headerLabel}>
+          {pairedDevices.length > 0 ? `${pairedDevices.length} device${pairedDevices.length !== 1 ? 's' : ''} paired` : ''}
         </Text>
-      </Pressable>
-
-      {scanError !== null && bleDevices.length === 0 && (
-        <Text style={styles.errorText}>{scanError}</Text>
-      )}
-
-      {connectError !== null && (
-        <Text style={styles.errorText}>{connectError}</Text>
-      )}
-
-      {bleDevices.map((bd) => (
         <Pressable
-          key={bd.id}
+          style={styles.refreshButton}
+          onPress={handleRefresh}
+          disabled={isLoadingPaired}
+        >
+          <Text style={styles.refreshButtonText}>
+            {isLoadingPaired ? 'Loading…' : 'Refresh'}
+          </Text>
+        </Pressable>
+      </View>
+
+      {isLoadingPaired && (
+        <ActivityIndicator
+          color={colors.primary}
+          size="large"
+          style={{ marginVertical: spacing.md }}
+        />
+      )}
+
+      {!isLoadingPaired && pairedDevices.length === 0 && (
+        <Text style={styles.emptyText}>
+          No paired devices found. Pair a device via your OS Bluetooth settings.
+        </Text>
+      )}
+
+      {pairedDevices.map((device) => (
+        <Pressable
+          key={device.id}
           style={[
             styles.deviceCard,
-            connectingDeviceId === bd.id && styles.bleDeviceSelected,
+            connectingDeviceId === device.id && styles.deviceSelected,
           ]}
-          onPress={() => handleDeviceConnect(bd.id)}
+          onPress={() => handleDeviceConnect(device.id)}
           disabled={connectingDeviceId !== null}
         >
           <View style={styles.deviceHeader}>
-            <Text style={styles.deviceName}>{bd.name ?? bd.id}</Text>
+            <Text style={styles.deviceName}>{device.name ?? device.id}</Text>
             <View style={styles.deviceRight}>
-              <Text style={styles.deviceDetail}>
-                {bd.rssi !== null ? `${bd.rssi} dBm` : ""}
-              </Text>
-              {connectingDeviceId === bd.id && (
+              {connectingDeviceId === device.id && (
                 <Text style={styles.connectingText}>Connecting…</Text>
               )}
             </View>
           </View>
         </Pressable>
       ))}
+
+      {error !== null && (
+        <Text style={styles.errorText}>{error}</Text>
+      )}
+
+      {connectError !== null && (
+        <Text style={styles.errorText}>{connectError}</Text>
+      )}
     </ExpandableCard>
   );
 }
 
 const styles = StyleSheet.create({
-  scanButton: {
-    backgroundColor: colors.primary,
-    borderRadius: borderRadius.sm,
-    paddingVertical: spacing.md,
-    alignItems: "center" as const,
-    marginBottom: spacing.md,
-  },
-  scanButtonText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: "600",
-  },
   buttonPressed: {
     opacity: 0.8,
   },
-  buttonDisabled: {
-    opacity: 0.5,
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  headerLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  refreshButton: {
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  refreshButtonText: {
+    color: colors.background,
+    fontSize: 12,
+    fontWeight: "600",
   },
   deviceCard: {
     backgroundColor: colors.surface,
@@ -156,10 +190,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  deviceDetail: {
-    ...typography.caption,
-  },
-  bleDeviceSelected: {
+  deviceSelected: {
     borderWidth: 1,
     borderColor: colors.primary,
   },
@@ -167,6 +198,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.primary,
     fontWeight: "600",
+  },
+  emptyText: {
+    ...typography.body,
+    color: colors.textMuted,
+    marginBottom: spacing.md,
   },
   errorText: {
     color: colors.error,

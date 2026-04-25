@@ -2,18 +2,78 @@
  * Bluetooth Low Energy abstraction layer (ADR-004 simplified).
  *
  * Provides a clean interface for BLE communication with nomon devices.
- * - MockBleService: stub implementation for web and testing
+ * - MockBleService: stub implementation for development and testing
+ * - WebBleService: real BLE via Web Bluetooth API (web only)
  * - RealBleService: real BLE via react-native-ble-plx (mobile only)
  *
  * Communication uses NDJSON relay — same format as the Unix socket IPC.
- * OS-level Bluetooth passkey pairing replaces the old custom pairing
- * ceremony. No app-layer encryption.
+ * OS-level Bluetooth passkey pairing (mobile) or Web Bluetooth pairing (web)
+ * replaces the old custom pairing ceremony. No app-layer encryption.
  *
  * The factory `createBleService()` returns the correct implementation
- * based on `Platform.OS`.
+ * based on `Platform.OS` and `ENABLE_BLE_MOCK_MODE` config flag.
+ *
+ * Mock mode on mobile: Set EXPO_PUBLIC_ENABLE_BLE_MOCK_MODE=true to use
+ * MockBleService on mobile for testing without provisioning.
  */
 
+import { ENABLE_BLE_MOCK_MODE } from "@/constants/config";
 import { Platform } from "react-native";
+
+// ---------------------------------------------------------------------------
+// Web Bluetooth API type declarations (extends Navigator)
+// ---------------------------------------------------------------------------
+
+declare global {
+  interface Navigator {
+    bluetooth?: Bluetooth;
+  }
+}
+
+interface Bluetooth {
+  requestDevice(options: RequestDeviceOptions): Promise<BluetoothDevice>;
+  getDevice?(id: string): Promise<BluetoothDevice | undefined>;
+}
+
+interface RequestDeviceOptions {
+  filters?: BluetoothDeviceFilter[];
+  optionalServices?: string[];
+}
+
+interface BluetoothDeviceFilter {
+  services?: string[];
+  name?: string;
+  namePrefix?: string;
+}
+
+interface BluetoothDevice extends EventTarget {
+  id: string;
+  name?: string;
+  gatt?: BluetoothRemoteGATTServer;
+}
+
+interface BluetoothRemoteGATTServer {
+  device: BluetoothDevice;
+  connected: boolean;
+  connect(): Promise<BluetoothRemoteGATTServer>;
+  disconnect(): void;
+  getPrimaryService(uuid: string): Promise<BluetoothRemoteGATTService>;
+}
+
+interface BluetoothRemoteGATTService extends EventTarget {
+  device: BluetoothDevice;
+  uuid: string;
+  getCharacteristic(uuid: string): Promise<BluetoothRemoteGATTCharacteristic>;
+}
+
+interface BluetoothRemoteGATTCharacteristic extends EventTarget {
+  service: BluetoothRemoteGATTService;
+  uuid: string;
+  value?: DataView;
+  startNotifications(): Promise<BluetoothRemoteGATTCharacteristic>;
+  stopNotifications(): Promise<BluetoothRemoteGATTCharacteristic>;
+  writeValueWithoutResponse(value: BufferSource): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // GATT UUIDs (ADR-004 single service)
@@ -88,6 +148,9 @@ interface IpcResponse {
 
 /** Abstract BLE service contract (ADR-004 JSON relay). */
 export interface BleService {
+  /** Get paired/bonded devices from the OS. Resolves with remembered peripherals. */
+  getPairedDevices(): Promise<BleDevice[]>;
+
   /** Scan for nearby nomon devices. Resolves with discovered peripherals. */
   scan(timeoutMs?: number): Promise<BleDevice[]>;
 
@@ -180,6 +243,7 @@ abstract class BaseBleService implements BleService {
     return this._token;
   }
 
+  abstract getPairedDevices(): Promise<BleDevice[]>;
   abstract scan(timeoutMs?: number): Promise<BleDevice[]>;
   abstract connect(deviceId: string): Promise<void>;
   abstract disconnect(): Promise<void>;
@@ -288,6 +352,11 @@ export class MockBleService extends BaseBleService {
   private _connectedId: string | null = null;
   private _requestId = 0;
 
+  async getPairedDevices(): Promise<BleDevice[]> {
+    // Mock returns both devices as "paired"
+    return [...MOCK_DEVICES];
+  }
+
   async scan(timeoutMs = 3000): Promise<BleDevice[]> {
     this._setStatus("scanning");
     await delay(Math.min(timeoutMs, 1500));
@@ -375,6 +444,13 @@ export class RealBleService extends BaseBleService {
   private _pendingResponse: PendingResponse | null = null;
   private _responseBuffer = "";
 
+  async getPairedDevices(): Promise<BleDevice[]> {
+    // react-native-ble-plx doesn't provide an easy way to list bonded devices
+    // from JavaScript. Users can discover devices via scan or use previously
+    // saved IDs. For now, return empty array and rely on "Add New Device" scan.
+    return [];
+  }
+
   private async getManager(): Promise<BleManagerInstance> {
     if (this._manager) return this._manager;
     const blePlx = await import("react-native-ble-plx");
@@ -448,22 +524,18 @@ export class RealBleService extends BaseBleService {
           }
           if (characteristic?.value) {
             const chunk = base64ToString(characteristic.value);
-            this._responseBuffer += chunk;
+            const consumed = consumeNdjsonChunks(this._responseBuffer, chunk);
 
-            // Process complete NDJSON lines.
-            let newlinePos: number;
-            while ((newlinePos = this._responseBuffer.indexOf("\n")) !== -1) {
-              const line = this._responseBuffer.slice(0, newlinePos).trim();
-              this._responseBuffer = this._responseBuffer.slice(newlinePos + 1);
-              if (line.length > 0) {
-                try {
-                  const resp = JSON.parse(line) as IpcResponse;
-                  this._pendingResponse?.resolve(resp);
-                } catch {
-                  this._pendingResponse?.reject(new Error(`Invalid JSON response: ${line}`));
-                }
+            for (const line of consumed.lines) {
+              try {
+                const resp = JSON.parse(line) as IpcResponse;
+                this._pendingResponse?.resolve(resp);
+              } catch {
+                this._pendingResponse?.reject(new Error(`Invalid JSON response: ${line}`));
               }
             }
+
+            this._responseBuffer = consumed.buffer;
           }
         },
       );
@@ -507,7 +579,9 @@ export class RealBleService extends BaseBleService {
     if (!resp.ok) {
       throw new Error(`Authentication failed: ${(resp.error as { message: string })?.message}`);
     }
-    this._token = (resp.result as { token: string }).token;
+    const token = extractAuthToken(resp.result);
+    if (!token) throw new Error("Authentication response missing token");
+    this._token = token;
     return this._token;
   }
 
@@ -554,17 +628,291 @@ export class RealBleService extends BaseBleService {
 }
 
 // ---------------------------------------------------------------------------
+// Web Bluetooth implementation (web only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Real BLE service using Web Bluetooth API.
+ *
+ * Uses the browser's native Web Bluetooth API to scan for and connect
+ * to nomon devices. Users must have already paired the device via OS
+ * settings for it to appear in the selection dialog.
+ *
+ * Communicates via GATT characteristics using NDJSON format.
+ */
+export class WebBleService extends BaseBleService {
+  private _requestId = 0;
+  private _device: BluetoothDevice | null = null;
+  private _characteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  private _notifySubId: number | null = null;
+  private _pendingResponse: PendingResponse | null = null;
+  private _responseBuffer = "";
+  private static readonly PAIRED_DEVICES_KEY = "nomon-paired-devices";
+
+  async getPairedDevices(): Promise<BleDevice[]> {
+    // Web Bluetooth API doesn't provide a way to list all paired devices.
+    // We store previously connected device info (id + name) in localStorage.
+    try {
+      const stored = localStorage.getItem(WebBleService.PAIRED_DEVICES_KEY);
+      if (!stored) return [];
+
+      const devicesData = JSON.parse(stored) as Array<{ id: string; name?: string }>;
+      return devicesData.map((d) => ({
+        id: d.id,
+        name: d.name ?? null,
+        rssi: null, // Web Bluetooth API doesn't expose RSSI
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  private _savePairedDevice(deviceId: string, deviceName?: string): void {
+    try {
+      const stored = localStorage.getItem(WebBleService.PAIRED_DEVICES_KEY);
+      const devicesData = stored ? (JSON.parse(stored) as Array<{ id: string; name?: string }>) : [];
+      
+      const exists = devicesData.some((d) => d.id === deviceId);
+      if (!exists) {
+        devicesData.push({ id: deviceId, name: deviceName });
+        localStorage.setItem(
+          WebBleService.PAIRED_DEVICES_KEY,
+          JSON.stringify(devicesData),
+        );
+      }
+    } catch {
+      // localStorage may be unavailable; continue without storing
+    }
+  }
+
+  async scan(timeoutMs = 5000): Promise<BleDevice[]> {
+    this._setStatus("scanning");
+    try {
+      if (!navigator.bluetooth) {
+        throw new Error("Web Bluetooth API not available in this browser");
+      }
+
+      // Request device filters for nomon service UUID
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [
+          {
+            services: [NOMON_SERVICE_UUID],
+          },
+        ],
+        optionalServices: [NOMON_SERVICE_UUID],
+      });
+
+      // Save the selected device for future reference (including name)
+      this._savePairedDevice(device.id, device.name);
+
+      // Return the single selected device
+      const result: BleDevice[] = [
+        {
+          id: device.id,
+          name: device.name ?? null,
+          rssi: null, // Web Bluetooth API doesn't expose RSSI
+        },
+      ];
+
+      this._setStatus("disconnected");
+      return result;
+    } catch (err) {
+      const message =
+        err instanceof DOMException && err.name === "NotFoundError"
+          ? "No device selected"
+          : err instanceof Error
+            ? err.message
+            : "Web Bluetooth scan failed";
+      this._setStatus("disconnected");
+      throw new Error(message);
+    }
+  }
+
+  async connect(deviceId: string): Promise<void> {
+    this._setStatus("connecting");
+    try {
+      if (!navigator.bluetooth) {
+        throw new Error("Web Bluetooth API not available in this browser");
+      }
+
+      // Use the device ID to reconnect to previously paired device
+      const device = await navigator.bluetooth.getDevice?.(deviceId);
+      if (!device) {
+        throw new Error(
+          `Device ${deviceId} not found. Please pair it via OS settings first.`,
+        );
+      }
+
+      // Connect to GATT server
+      const server = await device.gatt?.connect?.();
+      if (!server) throw new Error("Failed to connect to GATT server");
+
+      // Get the nomon service
+      const service = await server.getPrimaryService(NOMON_SERVICE_UUID);
+
+      // Get response characteristic for notifications
+      this._characteristic = await service.getCharacteristic(
+        RESPONSE_NOTIFY_CHAR_UUID,
+      );
+      await this._characteristic.startNotifications();
+
+      // Remember this device for next time (including name)
+      this._savePairedDevice(deviceId, device.name);
+
+      // Listen for notifications
+      this._characteristic.addEventListener(
+        "characteristicvaluechanged",
+        this._handleNotification.bind(this),
+      );
+
+      this._device = device;
+      this._responseBuffer = "";
+      this._setStatus("connected");
+    } catch (err) {
+      this._setStatus("disconnected");
+      throw new Error(
+        `Web Bluetooth connect failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  private _handleNotification(
+    event: Event,
+  ): void {
+    const characteristic = event.target as BluetoothRemoteGATTCharacteristic;
+    const value = characteristic.value;
+    if (!value) return;
+    // Decode the notification data
+    const chunk = new TextDecoder().decode(value);
+    const consumed = consumeNdjsonChunks(this._responseBuffer, chunk);
+
+    for (const line of consumed.lines) {
+      try {
+        const resp = JSON.parse(line) as IpcResponse;
+        this._pendingResponse?.resolve(resp);
+      } catch {
+        this._pendingResponse?.reject(
+          new Error(`Invalid JSON response: ${line}`),
+        );
+      }
+    }
+
+    this._responseBuffer = consumed.buffer;
+  }
+
+  async disconnect(): Promise<void> {
+    if (this._characteristic) {
+      try {
+        await this._characteristic.stopNotifications();
+        this._characteristic.removeEventListener(
+          "characteristicvaluechanged",
+          this._handleNotification.bind(this),
+        );
+      } catch {
+        // Device may already be disconnected
+      }
+      this._characteristic = null;
+    }
+    if (this._device?.gatt?.connected) {
+      try {
+        this._device.gatt.disconnect();
+      } catch {
+        // Device may already be disconnected
+      }
+    }
+    this._device = null;
+    this._token = null;
+    this._responseBuffer = "";
+    this._setStatus("disconnected");
+  }
+
+  async authenticate(): Promise<string> {
+    if (!this._device) {
+      throw new Error("Must be connected before authenticating");
+    }
+    const resp = await this.sendJsonCommand("authenticate");
+    if (!resp.ok) {
+      throw new Error(
+        `Authentication failed: ${(resp.error as { message: string })?.message}`,
+      );
+    }
+    const token = extractAuthToken(resp.result);
+    if (!token) throw new Error("Authentication response missing token");
+    this._token = token;
+    return this._token;
+  }
+
+  async sendJsonCommand(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<IpcResponse> {
+    if (!this._device) {
+      throw new Error("Not connected — cannot send commands");
+    }
+
+    this._requestId += 1;
+    const id = `web-${this._requestId}`;
+    const request: IpcRequest = { id, method, params };
+    const ndjson = JSON.stringify(request) + "\n";
+
+    const responsePromise = new Promise<IpcResponse>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this._pendingResponse = null;
+        reject(new Error(`Command '${method}' timed out`));
+      }, 10000);
+
+      this._pendingResponse = {
+        resolve: (resp: IpcResponse) => {
+          clearTimeout(timeout);
+          this._pendingResponse = null;
+          resolve(resp);
+        },
+        reject: (err: Error) => {
+          clearTimeout(timeout);
+          this._pendingResponse = null;
+          reject(err);
+        },
+      };
+    });
+
+    // Get command characteristic and write the command
+    this._device.gatt
+      ?.connect?.()
+      .then((server: BluetoothRemoteGATTServer) => server.getPrimaryService(NOMON_SERVICE_UUID))
+      .then((service: BluetoothRemoteGATTService) =>
+        service.getCharacteristic(COMMAND_WRITE_CHAR_UUID),
+      )
+      .then((char: BluetoothRemoteGATTCharacteristic) => {
+        const encoded = new TextEncoder().encode(ndjson);
+        return char.writeValueWithoutResponse(encoded);
+      })
+      .catch((err: Error) => {
+        this._pendingResponse?.reject(err);
+      });
+
+    return responsePromise;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
 /**
  * Create the appropriate BLE service for the current platform.
  *
- * - Web: MockBleService (no BLE support in browsers via react-native-ble-plx)
+ * Platform selection:
+ * - Web: WebBleService (uses Web Bluetooth API for real device pairing)
+ * - Mobile with ENABLE_BLE_MOCK_MODE=true: MockBleService (for testing)
  * - Mobile: RealBleService (uses react-native-ble-plx)
  */
 export function createBleService(): BleService {
   if (Platform.OS === "web") {
+    return new WebBleService();
+  }
+  if (ENABLE_BLE_MOCK_MODE) {
     return new MockBleService();
   }
   return new RealBleService();
@@ -626,6 +974,39 @@ interface PendingResponse {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Consume NDJSON chunks: append a chunk to an existing buffer and extract
+ * complete lines (without trailing newline). Returns parsed lines and the
+ * remaining buffer.
+ */
+export function consumeNdjsonChunks(
+  buffer: string,
+  chunk: string,
+): { lines: string[]; buffer: string } {
+  buffer += chunk;
+  const lines: string[] = [];
+  let newlinePos: number;
+  while ((newlinePos = buffer.indexOf("\n")) !== -1) {
+    const line = buffer.slice(0, newlinePos).trim();
+    buffer = buffer.slice(newlinePos + 1);
+    if (line.length > 0) lines.push(line);
+  }
+  return { lines, buffer };
+}
+
+/**
+ * Extract an authentication token from an `authenticate` IPC response `result`.
+ * Tolerant to both `token` and `jwt` field names (and `access_token`).
+ */
+export function extractAuthToken(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.token === "string" && r.token.length > 0) return r.token;
+  if (typeof r.jwt === "string" && r.jwt.length > 0) return r.jwt;
+  if (typeof r.access_token === "string" && r.access_token.length > 0) return r.access_token;
+  return null;
 }
 
 /** Decode base64 string to UTF-8 string. */
