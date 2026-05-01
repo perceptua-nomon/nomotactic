@@ -10,8 +10,8 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
 import { setDeviceTokenAccessors } from "@/lib/api";
+import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 interface BlePairingFlowProps {
@@ -61,7 +61,7 @@ export function BlePairingFlow({ onRefresh }: BlePairingFlowProps) {
       await ble.connect(deviceId);
 
       // Authenticate to get a JWT from the device
-      const token = await ble.authenticate();
+      await ble.authenticate();
 
       // Wire BLE token into the device API accessors so `deviceApi` uses it
       setDeviceTokenAccessors(() => (ble.token ?? null), async () => false);

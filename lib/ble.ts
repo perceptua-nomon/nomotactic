@@ -441,6 +441,7 @@ export class RealBleService extends BaseBleService {
   private _manager: BleManagerInstance | null = null;
   private _device: BleDeviceInstance | null = null;
   private _notifySub: { remove(): void } | null = null;
+  // Single in-flight command assumed; concurrent callers will overwrite each other's callbacks.
   private _pendingResponse: PendingResponse | null = null;
   private _responseBuffer = "";
 
@@ -508,6 +509,10 @@ export class RealBleService extends BaseBleService {
       await device.discoverAllServicesAndCharacteristics();
       this._device = device;
       this._responseBuffer = "";
+
+      // Tear down any previous notification subscription before creating a new one.
+      this._notifySub?.remove();
+      this._notifySub = null;
 
       // Subscribe to Response Notify for NDJSON responses.
       this._notifySub = device.monitorCharacteristicForService(
@@ -616,12 +621,18 @@ export class RealBleService extends BaseBleService {
     });
 
     // Chunk the NDJSON line at MTU boundary and write to the Command char.
-    const encoded = stringToBase64(ndjson);
-    await this._device.writeCharacteristicWithoutResponseForService(
-      NOMON_SERVICE_UUID,
-      COMMAND_WRITE_CHAR_UUID,
-      encoded,
-    );
+    // Chunks at (negotiatedMTU - 3) bytes to respect ATT payload limit on Android.
+    const rawBytes = new TextEncoder().encode(ndjson);
+    const chunkSize = (this._device.mtu ?? 247) - 3;
+    for (let offset = 0; offset < rawBytes.length; offset += chunkSize) {
+      const chunk = rawBytes.slice(offset, offset + chunkSize);
+      const encoded = uint8ToBase64(chunk);
+      await this._device.writeCharacteristicWithoutResponseForService(
+        NOMON_SERVICE_UUID,
+        COMMAND_WRITE_CHAR_UUID,
+        encoded,
+      );
+    }
 
     return responsePromise;
   }
@@ -644,7 +655,9 @@ export class WebBleService extends BaseBleService {
   private _requestId = 0;
   private _device: BluetoothDevice | null = null;
   private _characteristic: BluetoothRemoteGATTCharacteristic | null = null;
-  private _notifySubId: number | null = null;
+  private _commandChar: BluetoothRemoteGATTCharacteristic | null = null;
+  private _boundHandleNotification: ((event: Event) => void) | null = null;
+  // Single in-flight command assumed; concurrent callers will overwrite each other's callbacks.
   private _pendingResponse: PendingResponse | null = null;
   private _responseBuffer = "";
   private static readonly PAIRED_DEVICES_KEY = "nomon-paired-devices";
@@ -756,13 +769,17 @@ export class WebBleService extends BaseBleService {
       );
       await this._characteristic.startNotifications();
 
+      // Cache command characteristic to avoid re-traversing GATT on every write.
+      this._commandChar = await service.getCharacteristic(COMMAND_WRITE_CHAR_UUID);
+
       // Remember this device for next time (including name)
       this._savePairedDevice(deviceId, device.name);
 
-      // Listen for notifications
+      // Listen for notifications — store bound handler so disconnect can remove it.
+      this._boundHandleNotification = this._handleNotification.bind(this);
       this._characteristic.addEventListener(
         "characteristicvaluechanged",
-        this._handleNotification.bind(this),
+        this._boundHandleNotification,
       );
 
       this._device = device;
@@ -806,15 +823,19 @@ export class WebBleService extends BaseBleService {
     if (this._characteristic) {
       try {
         await this._characteristic.stopNotifications();
-        this._characteristic.removeEventListener(
-          "characteristicvaluechanged",
-          this._handleNotification.bind(this),
-        );
+        if (this._boundHandleNotification) {
+          this._characteristic.removeEventListener(
+            "characteristicvaluechanged",
+            this._boundHandleNotification,
+          );
+          this._boundHandleNotification = null;
+        }
       } catch {
         // Device may already be disconnected
       }
       this._characteristic = null;
     }
+    this._commandChar = null;
     if (this._device?.gatt?.connected) {
       try {
         this._device.gatt.disconnect();
@@ -877,20 +898,24 @@ export class WebBleService extends BaseBleService {
       };
     });
 
-    // Get command characteristic and write the command
-    this._device.gatt
-      ?.connect?.()
-      .then((server: BluetoothRemoteGATTServer) => server.getPrimaryService(NOMON_SERVICE_UUID))
-      .then((service: BluetoothRemoteGATTService) =>
-        service.getCharacteristic(COMMAND_WRITE_CHAR_UUID),
-      )
-      .then((char: BluetoothRemoteGATTCharacteristic) => {
-        const encoded = new TextEncoder().encode(ndjson);
-        return char.writeValueWithoutResponse(encoded);
-      })
-      .catch((err: Error) => {
-        this._pendingResponse?.reject(err);
-      });
+    // Use cached command characteristic to avoid re-traversing GATT on every write.
+    if (!this._commandChar) {
+      this._pendingResponse?.reject(new Error("Command characteristic not available — reconnect required"));
+      return responsePromise;
+    }
+    // Web Bluetooth API does not expose MTU negotiation; spec max ATT payload is 517 bytes.
+    // Safe payload size is 514 (517 − 3 ATT overhead bytes).
+    const rawBytes = new TextEncoder().encode(ndjson);
+    const chunkSize = 514; // Web Bluetooth spec max ATT payload: 517 bytes max − 3 ATT header bytes
+    const writeChunks = async () => {
+      for (let offset = 0; offset < rawBytes.length; offset += chunkSize) {
+        const chunk = rawBytes.slice(offset, offset + chunkSize);
+        await this._commandChar!.writeValueWithoutResponse(chunk);
+      }
+    };
+    writeChunks().catch((err: Error) => {
+      this._pendingResponse?.reject(err);
+    });
 
     return responsePromise;
   }
@@ -944,6 +969,7 @@ interface BleDeviceInstance {
   name: string | null;
   localName: string | null;
   rssi: number | null;
+  mtu: number | null;
   discoverAllServicesAndCharacteristics(): Promise<BleDeviceInstance>;
   cancelConnection(): Promise<BleDeviceInstance>;
   writeCharacteristicWithoutResponseForService(
@@ -1019,10 +1045,10 @@ function base64ToString(b64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-/** Encode UTF-8 string to base64 string. */
-function stringToBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
+// btoa/atob are available globally in React Native ≥ 0.70 (Hermes). If targeting older RN, add react-native-quick-base64 as a polyfill.
+/** Encode a Uint8Array directly to base64 without interpreting bytes as text. */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
