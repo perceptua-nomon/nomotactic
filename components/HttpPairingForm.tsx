@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
+import { WifiProvisionForm } from "@/components/WifiProvisionForm";
 import { DEVICE_API_URL } from "@/constants/config";
 import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
@@ -16,11 +17,12 @@ interface HttpPairingFormProps {
 }
 
 export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormProps) {
-  const { pairWithDevice } = useAuth();
+  const { pairWithDevice, deviceAccessToken } = useAuth();
   const [pairingSecret, setPairingSecret] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
+  const [showWifi, setShowWifi] = useState(false);
 
   async function handlePair() {
     if (!pairingSecret.trim() || !displayName.trim()) return;
@@ -31,6 +33,7 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
       setPairingSecret("");
       setDisplayName("");
       await onPaired();
+      setShowWifi(true);
     } catch (err: unknown) {
       let message = err instanceof Error ? err.message : "Pairing failed";
       if (message === "Request timed out") {
@@ -83,6 +86,9 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
           {isPairing ? "Pairing\u2026" : "Pair"}
         </Text>
       </Pressable>
+      {showWifi && deviceAccessToken !== null && (
+        <WifiProvisionForm accessToken={deviceAccessToken} />
+      )}
     </ExpandableCard>
   );
 }
