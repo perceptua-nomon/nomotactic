@@ -8,31 +8,27 @@
 | 1.2 | Auth Flow | ✅ Complete |
 | 1.3 | Device Control Dashboard | ✅ Complete |
 | 1.4 | Web Experience | ✅ Complete |
-| 1.5 | BLE Abstraction Stubs | ✅ Complete |
+| 1.5 | BLE Abstraction Stubs | ⊘ Superseded by Phase 15 |
 | 1.6 | AI-Ready Command Input | ✅ Complete |
-| 2 | BLE Integration | ✅ Complete |
-| 2.1 | BLE Simplification | ✅ Complete |
-| 2.2 | BLE Pairing Architecture Corrections | ✅ Complete |
+| 2 | BLE Integration | ⊘ Superseded by Phase 15 |
+| 2.1 | BLE Simplification | ⊘ Superseded by Phase 15 |
+| 2.2 | BLE Pairing Architecture Corrections | ⊘ Superseded by Phase 15 |
 
 ---
 
 ## Current State
 
-Phases 1, 2, 2.1, and 2.2 are complete. The app has:
+Phases 1, 2, 2.1, and 2.2 are complete (BLE phases superseded by Phase 15 — Wi-Fi Soft AP). The app has:
 - Expo SDK 54 with expo-router navigation
 - Dark theme, typed API client with auth injection and 401 retry guard
 - JWT auth flow with expo-secure-store (mobile) / localStorage (web)
 - Device control dashboard with 5 expandable card components
 - Web landing page for unauthenticated visitors
-- BLE device discovery, OS passkey pairing, and link-layer encrypted transport
-- NDJSON relay over BLE (same format as HTTPS API — no custom codec or encryption)
-- Hybrid transport layer (BLE ↔ HTTPS auto-switching)
-- WiFi provisioning over BLE
+- Wi-Fi Soft AP pairing: HTTP pairing flow (`POST /api/device/auth/pair`) accessible at `192.168.4.1:8443`
 - Connection state indicator with auto-reconnect
 - AI-ready command input bar
-- Guest mode: unauthenticated users can BLE-pair without an account
-- BLE session registry: active sessions persist across navigation transitions
-- Local device registry: BLE-paired devices appear on the dashboard with a "Local" badge
+- Guest mode: unauthenticated users can pair via Soft AP without an account
+- Local device registry: Soft-AP-paired devices appear on the dashboard with a "Local" badge
 - `npx expo lint` clean
 
 ### Hotfixes
