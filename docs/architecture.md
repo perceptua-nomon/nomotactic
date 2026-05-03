@@ -59,8 +59,8 @@ app/
                           "Continue without account" → sets isGuest, enters /(app)
   (app)/
     _layout.tsx       → Auth guard (authenticated or guest) + CommandInput bar at bottom
-    index.tsx         → Devices dashboard: fleet + local device list, BLE pairing
-    register-device.tsx → Local nomothetic registration after BLE connect
+    index.tsx         → Devices dashboard: fleet + local device list, Soft AP pairing
+    register-device.tsx → Local nomothetic registration after HTTP pairing via Soft AP
     device/[id].tsx   → Per-device control view with expandable cards
 ```
 
@@ -73,11 +73,10 @@ on fleet discovery and pairing.
 | Context | Behaviour |
 |---------|-----------|
 | **Web, unauthenticated** | Landing page (hero, features, CTA to login) |
-| **Web, authenticated** | Fleet dashboard. No Bluetooth features. Motor controls hidden (no BLE fallback). HTTPS only. |
+| **Web, authenticated** | Fleet dashboard. HTTPS only. |
 | **Mobile, WiFi connected** | Full device control: motors, camera, sensors, settings, calibration. HTTPS transport. |
-| **Mobile, BLE only** | Basic control: motor commands, servo, battery, sensors via NDJSON over BLE (same JSON format as the HTTPS API). Camera/audio/calibration/routines unavailable (require HTTPS). |
-| **Mobile, BLE → WiFi transition** | After BLE pairing, app exchanges WiFi credentials over BLE. Pi joins WiFi. App switches to HTTPS for full feature set. JWT from BLE pairing is reused. |
-| **Mobile, guest (no account)** | Login skipped via "Continue without account". BLE pairing available. Dashboard shows locally-paired devices only; central fleet unavailable. |
+| **Mobile, Soft AP connected** | Basic pairing flow: user connects to `nomon-<last4-of-MAC>` AP, enters pairing secret at `https://192.168.4.1:8443`, receives JWT. After pairing, nomotactic switches to HTTPS for full feature set. |
+| **Mobile, guest (no account)** | Login skipped via "Continue without account". Soft AP pairing available. Dashboard shows locally-paired devices only; central fleet unavailable. |
 
 Platform detection uses `Platform.OS` from React Native. Feature visibility
 is conditional, not page-based.
@@ -120,7 +119,7 @@ flag (not persisted to storage). This flag:
 - Allows the `(app)` auth guard to pass without a JWT
 - Is cleared on app restart or explicit logout
 - The top bar renders a "Sign In" link in place of "Logout" for guests
-- Guest users can BLE-pair devices and see them on the dashboard via the
+- Guest users can pair devices via Soft AP and see them on the dashboard via the
   local device registry (see [Local Device Registry](#local-device-registry))
 
 ## API Client
@@ -153,81 +152,68 @@ Per-device control uses **expandable card components** for progressive disclosur
 Each card is a self-contained component managing its own state. Cards
 fetch data independently and handle their own error states.
 
-## BLE Abstraction
+## Wi-Fi Soft AP Pairing
 
-`lib/ble.ts` defines a `BleService` interface for BLE communication:
+When the device is not connected to a known Wi-Fi network, the Soft AP watchdog
+(`nomon-softap-watchdog.timer` in nomopractic) broadcasts a WPA2 hotspot named
+`nomon-<last4-of-MAC>`. The passphrase equals the device pairing secret shown in
+the nomothetic startup log.
+
+**Pairing flow (mobile or web):**
+
+1. User connects their device to the `nomon-<last4-of-MAC>` Wi-Fi network.
+2. nomotactic detects the Soft AP network and surfaces the pairing form at
+   `https://192.168.4.1:8443`.
+3. User enters the pairing secret (`POST /api/device/auth/pair`).
+4. nomothetic returns a device-scoped JWT (`iss=nomon-device`).
+5. nomotactic stores the JWT in `expo-secure-store` (mobile) / `localStorage` (web).
+6. After pairing, the user connects back to their home network; all subsequent
+   device API calls use the stored JWT over HTTPS.
 
 ```
-interface BleService {
-  scan(): Promise<Device[]>
-  connect(deviceId: string): Promise<void>
-  disconnect(): Promise<void>
-  authenticate(): Promise<string>
-  sendJsonCommand(method: string, params: object): Promise<object>
-  drive(speedPct: number, ttlMs?: number): Promise<void>
-  steer(angleDeg: number, ttlMs?: number): Promise<void>
-  getBattery(): Promise<{ voltage_v: number }>
-  readUltrasonic(): Promise<{ distance_cm: number }>
-  onStatusChange(callback: (status: ConnectionStatus) => void): void
+User phone                      nomon Pi
+──────────                      ─────────
+Join nomon-<last4> AP      ──▶  192.168.4.1 (Soft AP)
+GET https://192.168.4.1:8443   ──▶  nomothetic HTTPS
+POST /api/device/auth/pair     ──▶  verify pairing secret
+                               ◀──  { access_token, refresh_token }
+Store JWT in secure storage
+Disconnect from AP
+Join home Wi-Fi
+API calls with Bearer <JWT>    ──▶  nomothetic device endpoints
+```
+
+The Soft AP is browser-universal — it works from the nomotactic app,
+Safari, Chrome, Firefox, and any HTTP client.
+
+### Local Device Registry
+
+`lib/local-devices.ts` maintains a persistent list of Soft-AP-paired devices
+independently of the central fleet API, enabling the dashboard to show devices
+for guest users and during offline operation.
+
+```ts
+interface LocalDevice {
+  id: string;       // nomothetic device ID (stable identifier)
+  name: string;     // device-announced or user-assigned name
+  pairedAt: string; // ISO 8601 timestamp
+  vin: string | null;  // nomothetic VIN once registered, null otherwise
+  source: 'local';  // discriminant
 }
 ```
 
-Phase 1 shipped `MockBleService` — all methods return stub data (web platform).
-Phase 2 (complete) added `RealBleService` using `react-native-ble-plx` with:
+Storage: JSON-encoded array at key `nomon_local_devices`, using the same
+cross-platform storage pattern as auth tokens (`expo-secure-store` on mobile,
+`localStorage` on web).
 
-- BLE device discovery by nomon GATT service UUID
-- OS-level Bluetooth passkey pairing (6-digit code; no app-layer crypto)
-- NDJSON relay over single GATT service (2 characteristics)
-- `authenticate()` IPC call after bonding → JWT
-- WiFi provisioning via standard IPC methods over NDJSON
-- Hybrid transport layer (`lib/transport.ts`) for BLE → HTTPS switching
+`useDevices` loads both central and local device lists in parallel and merges
+them. Deduplication: if a local device's `vin` matches a central fleet device,
+the central entry takes precedence and the local entry is omitted.
+`Device.source: 'central' | 'local'` distinguishes registry origin. The
+dashboard renders a "Local" pill badge for source `'local'` devices.
 
-Web platform always receives `MockBleService` (BLE is mobile-only).
-
-### BLE Session Registry
-
-`lib/ble.ts` exposes a module-level session registry that survives navigation
-transitions:
-
-- `registerBleSession(deviceId, ble)` — stores an active `BleService` instance
-  keyed by OS BLE device ID
-- `getBleSession(deviceId)` — retrieves the session for a given device
-- `clearBleSession(deviceId)` — removes the session on disconnect or cleanup
-
-`BlePairingFlow` calls `registerBleSession` after `ble.authenticate()`. The
-device page activates the session by calling `transport.activateSession(id)`,
-which looks up `getBleSession(id)` and wires the result into `TransportProvider`.
-Sessions are keyed by OS BLE device ID, supporting concurrent sessions for
-different devices.
-
-### BLE Transport Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│  nomotactic (mobile)                                │
-│                                                     │
-│  TransportProvider                                  │
-│  ┌───────────────────────────────────────────┐  │
-│  │ if WiFi available:  ─── HTTPS ───▶ nomothetic  │  │
-│  │ if BLE only:        ─── BLE  ───▶ nomopractic │  │
-│  └───────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-
-  BLE path (NDJSON chunks):                  HTTPS path (JSON):
-  nomotactic                                  nomotactic
-   │ BLE GATT write (NDJSON chunks)            │ fetch() + JSON
-   └─▶ nomopractic BLE GATT server              └─▶ nomothetic REST API
-       │ ble/bridge.rs → handler.rs                  │ HatClient → IPC
-       └─▶ HAT hardware                               └─▶ nomopractic → HAT
-```
-
-BLE provides a subset of the HTTPS feature set (motor/servo/sensor commands).
-Camera, audio, streaming, calibration, and routines require HTTPS.
-
-`TransportProvider` is mounted at the root layout (`app/_layout.tsx`) — not
-per-device page — so the BLE session established during pairing persists across
-navigation. The device page calls `transport.activateSession(deviceId)` on
-mount, which looks up the registered session and sets the transport mode.
+Future: when a guest user logs in, a sync prompt will offer to promote
+local-only devices to the central fleet registry.
 
 ## AI-Ready Command Input
 
@@ -239,36 +225,6 @@ layout (see [ADR-002](adr/002-ai-ready-ux.md)):
 - Stub handler initially; replaced by AI endpoint in a future phase
 - Keyboard-avoiding on mobile, fixed-bottom on web
 
-## Local Device Registry
-
-`lib/local-devices.ts` maintains a persistent list of BLE-paired devices
-independently of the central fleet API, enabling the dashboard to show devices
-for guest users and during offline operation.
-
-```ts
-interface LocalDevice {
-  id: string;          // OS BLE device ID (stable identifier)
-  name: string;        // device-announced or user-assigned name
-  pairedAt: string;    // ISO 8601 timestamp
-  bleDeviceId: string; // same as id initially; preserved for lookup
-  vin: string | null;  // nomothetic VIN once registered, null otherwise
-  source: 'local';     // discriminant
-}
-```
-
-Storage: JSON-encoded array at key `nomon_local_devices`, using the same
-cross-platform storage pattern as auth tokens (`expo-secure-store` on mobile,
-`localStorage` on web). No additional npm dependency required.
-
-`useDevices` loads both central and local device lists in parallel and merges
-them. Deduplication: if a local device's `vin` matches a central fleet device,
-the central entry takes precedence and the local entry is omitted.
-`Device.source: 'central' | 'local'` distinguishes registry origin. The
-dashboard renders a "Local" pill badge for source `'local'` devices.
-
-Future: when a guest user logs in, a sync prompt will offer to promote
-local-only devices to the central fleet registry.
-
 ## Dependencies
 
 **Production (current):**
@@ -278,7 +234,6 @@ local-only devices to the central fleet registry.
 - `react-native-safe-area-context` (safe area insets)
 - `react-native-screens` (native navigation)
 - `react-native-gesture-handler` (gesture support)
-- `react-native-ble-plx` (BLE GATT client for Android/iOS)
 
 **No additional UI libraries.** All components built with core RN primitives
 (`View`, `Text`, `TextInput`, `Pressable`, `ScrollView`, `Platform`).

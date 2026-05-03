@@ -1,7 +1,7 @@
 /**
  * Sensor card — ultrasonic distance and grayscale readings.
  *
- * Uses TransportProvider to route commands via HTTPS or BLE.
+ * Uses HTTPS to communicate with the device API.
  */
 
 import React, { useState } from "react";

@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
+import { WifiProvisionForm } from "@/components/WifiProvisionForm";
 import { DEVICE_API_URL } from "@/constants/config";
 import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
@@ -21,6 +22,7 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
   const [displayName, setDisplayName] = useState("");
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
+  const [showWifi, setShowWifi] = useState(false);
 
   async function handlePair() {
     if (!pairingSecret.trim() || !displayName.trim()) return;
@@ -31,6 +33,7 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
       setPairingSecret("");
       setDisplayName("");
       await onPaired();
+      setShowWifi(true);
     } catch (err: unknown) {
       let message = err instanceof Error ? err.message : "Pairing failed";
       if (message === "Request timed out") {
@@ -46,8 +49,9 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
     <ExpandableCard title="Pair New Device" defaultExpanded={defaultExpanded}>
       <Text style={styles.pairingDesc}>
         Enter the server pairing code shown on the device console. This is
-        the nomothetic pairing code used for HTTP registration — not the
-        Bluetooth passkey shown by your phone/OS during BLE pairing.
+        the nomothetic pairing code used for HTTP registration. Connect to
+        the device&apos;s Wi-Fi hotspot (nomon-&lt;last4&gt;) if you haven&apos;t
+        joined the same network yet.
       </Text>
       <TextInput
         style={styles.input}
@@ -82,6 +86,9 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
           {isPairing ? "Pairing\u2026" : "Pair"}
         </Text>
       </Pressable>
+      {showWifi && (
+        <WifiProvisionForm />
+      )}
     </ExpandableCard>
   );
 }

@@ -2,7 +2,7 @@
  * Status card — battery voltage, uptime, firmware, connection state.
  *
  * Auto-refreshes every 5 seconds while expanded.
- * Uses TransportProvider to route commands via HTTPS or BLE.
+ * Uses HTTPS to communicate with the device API.
  */
 
 import React, { useCallback, useState } from "react";

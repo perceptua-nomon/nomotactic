@@ -46,8 +46,7 @@ codebase.
   haptics, and linking out of the box — no need for large third-party UI
   libraries.
 - **Platform-conditional rendering.** `Platform.OS` and `Platform.select()`
-  allow hiding features (e.g., Bluetooth controls) on web while keeping one
-  component tree.
+  allow hiding features on web while keeping one component tree.
 
 ## Trade-offs
 
@@ -55,9 +54,9 @@ codebase.
   limitations compared to Next.js or Remix (no SSR, no server components, no
   built-in SEO). Acceptable since the web surface is a dashboard, not a
   content site.
-- **Bluetooth requires native modules.** `react-native-ble-plx` or similar
-  libraries require Expo development builds (not Expo Go). Planned for a
-  future phase; stubs are defined now.
+- **Wi-Fi Soft AP pairing requires an HTTP client.** The pairing flow uses
+  `POST /api/device/auth/pair` over the Soft AP network — works on all
+  platforms including web. No native modules required.
 - **Bundle size.** React Native + Expo adds baseline overhead (~1 MB+).
   Mitigated by Expo's tree-shaking and the hermes engine on mobile.
 - **Expo SDK version coupling.** Upgrading Expo can be disruptive. Mitigated
@@ -68,7 +67,7 @@ codebase.
 | Feature | Android | iOS | Web |
 |---------|---------|-----|-----|
 | Device control (WiFi) | ✅ | ✅ | ✅ |
-| Device control (BLE) | ✅ Implemented (Phase 2) | ✅ Implemented (Phase 2) | ❌ |
+| Device pairing (Soft AP) | ✅ | ✅ | ✅ |
 | Camera feed (MJPEG) | ✅ | ✅ | ✅ |
 | Auth (login/register) | ✅ | ✅ | ✅ |
 | Fleet dashboard | ✅ | ✅ | ✅ |

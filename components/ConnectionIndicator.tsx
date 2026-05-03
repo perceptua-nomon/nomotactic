@@ -1,11 +1,11 @@
 /**
  * Connection indicator bar — shows current transport mode.
  *
- * Displays WiFi / Bluetooth / Disconnected status with appropriate
- * coloring. Tap to manually reconnect when disconnected.
+ * Displays Wi-Fi / Disconnected status with appropriate
+ * coloring. Tap to return to dashboard when disconnected.
  */
 
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -13,21 +13,13 @@ import { borderRadius, colors, spacing } from "@/lib/theme";
 import { useTransport } from "@/lib/transport";
 
 export function ConnectionIndicator() {
-  const { mode, activateSession } = useTransport();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const { mode } = useTransport();
   const router = useRouter();
 
-  const config = STATUS_CONFIG[mode];
+  const config = STATUS_CONFIG[mode] ?? STATUS_CONFIG.disconnected;
 
-  async function handleReconnect() {
-    const deviceId = Array.isArray(params.id) ? params.id[0] : params.id;
-    if (mode === "ble" && deviceId) {
-      try {
-        await activateSession(deviceId);
-      } catch {
-        router.replace("/(app)");
-      }
-    } else {
+  function handleReconnect() {
+    if (mode === "disconnected") {
       router.replace("/(app)");
     }
   }
@@ -58,12 +50,6 @@ const STATUS_CONFIG: Record<
     label: "WiFi",
     color: colors.secondary,
     bg: "rgba(63, 185, 80, 0.1)",
-  },
-  ble: {
-    icon: "\u{1F4F1}",
-    label: "Bluetooth",
-    color: colors.primary,
-    bg: "rgba(88, 166, 255, 0.1)",
   },
   disconnected: {
     icon: "\u274C",
