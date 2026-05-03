@@ -17,7 +17,7 @@ interface HttpPairingFormProps {
 }
 
 export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormProps) {
-  const { pairWithDevice, deviceAccessToken } = useAuth();
+  const { pairWithDevice } = useAuth();
   const [pairingSecret, setPairingSecret] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pairingError, setPairingError] = useState<string | null>(null);
@@ -86,8 +86,8 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
           {isPairing ? "Pairing\u2026" : "Pair"}
         </Text>
       </Pressable>
-      {showWifi && deviceAccessToken !== null && (
-        <WifiProvisionForm accessToken={deviceAccessToken} />
+      {showWifi && (
+        <WifiProvisionForm />
       )}
     </ExpandableCard>
   );

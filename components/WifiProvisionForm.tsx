@@ -4,21 +4,21 @@
  * Submits home SSID + WPA2 password to the device API which connects in the
  * background.  The Soft AP watchdog shuts the hotspot down automatically once
  * the device achieves full internet connectivity.
+ *
+ * Uses `deviceApi` (from `lib/api`) so that the device JWT is injected
+ * automatically, timeouts are enforced, and 401 responses trigger a
+ * transparent token refresh — consistent with all other device API calls.
  */
 
 import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { DEVICE_API_URL } from "@/constants/config";
+import { ApiRequestError, deviceApi } from "@/lib/api";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface WifiProvisionFormProps {
-  accessToken: string;
-}
 
 interface WifiProvisionResponse {
   status: "connecting";
@@ -28,7 +28,7 @@ interface WifiProvisionResponse {
 // Component
 // ---------------------------------------------------------------------------
 
-export function WifiProvisionForm({ accessToken }: WifiProvisionFormProps) {
+export function WifiProvisionForm() {
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "submitted" | "error">("idle");
@@ -40,30 +40,23 @@ export function WifiProvisionForm({ accessToken }: WifiProvisionFormProps) {
     setErrorMessage(null);
 
     try {
-      const response = await fetch(`${DEVICE_API_URL}/api/device/network/configure`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ ssid: ssid.trim(), password }),
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        const detail =
-          typeof body?.detail === "string" ? body.detail : `HTTP ${response.status}`;
-        throw new Error(detail);
-      }
-
-      const data: WifiProvisionResponse = await response.json();
+      const data = await deviceApi<WifiProvisionResponse>(
+        "/api/device/network/configure",
+        { method: "POST", body: { ssid: ssid.trim(), password } },
+      );
       if (data.status === "connecting") {
         setStatus("submitted");
       } else {
         throw new Error("Unexpected response from device");
       }
     } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "Failed to configure Wi-Fi");
+      const message =
+        err instanceof ApiRequestError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Failed to configure Wi-Fi";
+      setErrorMessage(message);
       setStatus("error");
     }
   }
