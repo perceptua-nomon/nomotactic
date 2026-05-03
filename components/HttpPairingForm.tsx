@@ -46,8 +46,9 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
     <ExpandableCard title="Pair New Device" defaultExpanded={defaultExpanded}>
       <Text style={styles.pairingDesc}>
         Enter the server pairing code shown on the device console. This is
-        the nomothetic pairing code used for HTTP registration — not the
-        Bluetooth passkey shown by your phone/OS during BLE pairing.
+        the nomothetic pairing code used for HTTP registration. Connect to
+        the device&apos;s Wi-Fi hotspot (nomon-&lt;last4&gt;) if you haven&apos;t
+        joined the same network yet.
       </Text>
       <TextInput
         style={styles.input}

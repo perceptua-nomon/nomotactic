@@ -2,7 +2,7 @@
  * Devices dashboard.
  *
  * Lists fleet devices with online status and last-seen info.
- * Includes native BLE pairing flow for connecting to new devices.
+ * Includes the HTTP pairing form for connecting to new devices.
  */
 
 import { useRouter } from "expo-router";
@@ -16,8 +16,7 @@ import {
     View,
 } from "react-native";
 
-import { AddDeviceSection } from "@/components/AddDeviceSection";
-import { BlePairingFlow } from "@/components/BlePairingFlow";
+import { HttpPairingForm } from "@/components/HttpPairingForm";
 import { type Device, formatLastSeen, useDevices } from "@/lib/devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
@@ -90,9 +89,7 @@ export default function DashboardScreen() {
 
       {!isLoading && devices.map(renderDeviceCard)}
 
-      <AddDeviceSection onRefresh={refresh} />
-
-      <BlePairingFlow onRefresh={refresh} />
+      <HttpPairingForm defaultExpanded={devices.length === 0} onPaired={refresh} />
     </ScrollView>
   );
 }

@@ -1,8 +1,8 @@
 /**
  * Motor control card — directional pad and speed slider.
  *
- * Hidden on web (no BLE fallback for motor commands).
- * Uses TransportProvider to route commands via HTTPS or BLE.
+ * Hidden on web (touch controls not useful without mobile interactions).
+ * Uses HTTPS to communicate with the device API.
  */
 
 import React, { useState } from "react";
@@ -18,7 +18,7 @@ export function MotorCard() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const sendCommand = useDeviceCommand();
 
-  // Hidden on web — no BLE fallback
+  // Hidden on web — touch controls not useful without mobile interactions
   if (Platform.OS === "web") return null;
 
   async function sendDrive(speedPct: number) {

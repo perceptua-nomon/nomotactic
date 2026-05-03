@@ -1,5 +1,5 @@
 /**
- * Local device registry — persists BLE-paired devices across sessions.
+ * Local device registry — persists HTTP-paired devices across sessions.
  *
  * TODO: Replace the in-memory Map with @react-native-async-storage/async-storage
  *       once that package is added as a dependency. The async API surface is already
@@ -14,7 +14,6 @@ export interface LocalDevice {
   id: string;
   name: string;
   pairedAt: string;
-  bleDeviceId: string;
   vin: string | null;
   source: "local";
 }

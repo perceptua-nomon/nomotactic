@@ -1,6 +1,6 @@
 # ADR-003: BLE Pairing Architecture Corrections
 
-**Status:** Accepted  
+**Status:** Superseded by nomopractic [ADR-005: Wi-Fi Soft AP](../../nomopractic/docs/adr/005-wifi-soft-ap.md)  
 **Date:** 2026-05-01  
 **Deciders:** Perceptua  
 **Addresses:** F-01 (auth guard blocks guest pairing), F-04 (BLE session loss on

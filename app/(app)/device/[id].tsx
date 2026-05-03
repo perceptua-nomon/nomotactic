@@ -3,12 +3,10 @@
  *
  * Renders the same card set as the original dashboard
  * (StatusCard, MotorCard, CameraCard, SensorCard, RoutineCard).
- * Uses the root-level TransportProvider; activates the BLE session
- * from the registry on mount so navigation doesn't drop the connection.
  */
 
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect } from "react";
+import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { CameraCard } from "@/components/CameraCard";
@@ -18,18 +16,10 @@ import { RoutineCard } from "@/components/RoutineCard";
 import { SensorCard } from "@/components/SensorCard";
 import { StatusCard } from "@/components/StatusCard";
 import { colors, spacing, typography } from "@/lib/theme";
-import { useTransport } from "@/lib/transport";
 
 export default function DeviceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { activateSession } = useTransport();
-
-  useEffect(() => {
-    if (id) {
-      void activateSession(id);
-    }
-  }, [id, activateSession]);
 
   return (
     <ScrollView
