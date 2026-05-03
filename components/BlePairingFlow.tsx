@@ -11,7 +11,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { ExpandableCard } from "@/components/ExpandableCard";
 import { setDeviceTokenAccessors } from "@/lib/api";
-import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
+import { type BleDevice, type BleService, createBleService, registerBleSession } from "@/lib/ble";
+import { addLocalDevice } from "@/lib/local-devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 interface BlePairingFlowProps {
@@ -63,11 +64,35 @@ export function BlePairingFlow({ onRefresh }: BlePairingFlowProps) {
       // Authenticate to get a JWT from the device
       await ble.authenticate();
 
+      // Register the BLE session so the device page can reconnect without re-pairing
+      registerBleSession(deviceId, ble);
+
+      // Store locally so the device appears on the dashboard without central registration
+      const device = pairedDevices.find((d) => d.id === deviceId);
+      await addLocalDevice({
+        id: deviceId,
+        name: device?.name ?? deviceId,
+        pairedAt: new Date().toISOString(),
+        bleDeviceId: deviceId,
+        vin: null,
+        source: "local",
+      });
+
       // Wire BLE token into the device API accessors so `deviceApi` uses it
-      setDeviceTokenAccessors(() => (ble.token ?? null), async () => false);
+      setDeviceTokenAccessors(
+        () => (ble.token ?? null),
+        async () => {
+          try {
+            await ble.authenticate();
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      );
 
       setConnectingDeviceId(null);
-      router.push("/(app)/register-device");
+      router.push(`/(app)/register-device?deviceId=${deviceId}`);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Connection failed";
       setConnectError(message);

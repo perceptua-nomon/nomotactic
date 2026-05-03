@@ -33,7 +33,12 @@ export default function DashboardScreen() {
         onPress={() => router.push(`/(app)/device/${device.id}`)}
       >
         <View style={styles.deviceHeader}>
-          <Text style={styles.deviceName}>{device.name}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={styles.deviceName}>{device.name}</Text>
+            {device.source === "local" && (
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>Local</Text>
+            )}
+          </View>
           <View
             style={[
               styles.statusDot,

@@ -37,6 +37,7 @@ interface AuthState {
   deviceAccessToken: string | null;
   deviceRefreshToken: string | null;
   isDevicePaired: boolean;
+  isGuest: boolean;
 }
 
 interface AuthContextValue extends AuthState {
@@ -48,6 +49,7 @@ interface AuthContextValue extends AuthState {
   pairWithDevice: (secret: string, displayName: string) => Promise<void>;
   unpairDevice: () => Promise<void>;
   refreshDeviceToken: () => Promise<boolean>;
+  continueAsGuest: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     deviceAccessToken: null,
     deviceRefreshToken: null,
     isDevicePaired: false,
+    isGuest: false,
   });
 
   // Restore tokens from storage on mount
@@ -216,6 +219,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       accessToken: null,
       refreshToken: null,
       user: null,
+      isGuest: false,
       isLoading: false,
     }));
   }, [state.refreshToken]);
@@ -272,6 +276,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [],
   );
 
+  const continueAsGuest = useCallback((): void => {
+    setState((prev) => ({ ...prev, isGuest: true }));
+  }, []);
+
   // Wire central API client token access
   useEffect(() => {
     setTokenAccessors(
@@ -311,8 +319,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       pairWithDevice,
       unpairDevice,
       refreshDeviceToken,
+      continueAsGuest,
     }),
-    [state, login, register, logout, refreshAccessToken, pairWithDevice, unpairDevice, refreshDeviceToken],
+    [state, login, register, logout, refreshAccessToken, pairWithDevice, unpairDevice, refreshDeviceToken, continueAsGuest],
   );
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

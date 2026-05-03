@@ -5,11 +5,14 @@
  * On mobile, initiates a BLE scan to discover nearby nomon devices.
  */
 
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { type BleDevice, type BleService, createBleService } from "@/lib/ble";
+import { setDeviceTokenAccessors } from "@/lib/api";
+import { type BleDevice, type BleService, createBleService, registerBleSession } from "@/lib/ble";
+import { addLocalDevice } from "@/lib/local-devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 interface AddDeviceSectionProps {
@@ -17,9 +20,12 @@ interface AddDeviceSectionProps {
 }
 
 export function AddDeviceSection({ onRefresh }: AddDeviceSectionProps) {
+  const router = useRouter();
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scannedDevices, setScannedDevices] = useState<BleDevice[]>([]);
+  const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const bleServiceRef = React.useRef<BleService | null>(null);
 
@@ -47,6 +53,43 @@ export function AddDeviceSection({ onRefresh }: AddDeviceSectionProps) {
       setScanError(message);
     } finally {
       setIsScanning(false);
+    }
+  }
+
+  async function handleConnect(device: BleDevice) {
+    setConnectingDeviceId(device.id);
+    setConnectError(null);
+    try {
+      const ble = bleServiceRef.current ?? createBleService();
+      bleServiceRef.current = ble;
+
+      await ble.connect(device.id);
+      await ble.authenticate();
+
+      setDeviceTokenAccessors(
+        () => (ble.token ?? null),
+        async () => {
+          try { await ble.authenticate(); return true; } catch { return false; }
+        },
+      );
+
+      registerBleSession(device.id, ble);
+
+      await addLocalDevice({
+        id: device.id,
+        name: device.name ?? device.id,
+        pairedAt: new Date().toISOString(),
+        bleDeviceId: device.id,
+        vin: null,
+        source: "local",
+      });
+
+      router.push(`/(app)/register-device?deviceId=${device.id}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Connection failed";
+      setConnectError(message);
+    } finally {
+      setConnectingDeviceId(null);
     }
   }
 
@@ -83,18 +126,34 @@ export function AddDeviceSection({ onRefresh }: AddDeviceSectionProps) {
         <Text style={styles.errorText}>{scanError}</Text>
       )}
 
+      {connectError !== null && (
+        <Text style={styles.errorText}>{connectError}</Text>
+      )}
+
       {scannedDevices.length > 0 && (
         <View style={styles.devicesContainer}>
           <Text style={styles.devicesLabel}>
             Found {scannedDevices.length} device{scannedDevices.length !== 1 ? 's' : ''}:
           </Text>
           {scannedDevices.map((device) => (
-            <View key={device.id} style={styles.deviceItem}>
+            <Pressable
+              key={device.id}
+              style={({ pressed }) => [
+                styles.deviceItem,
+                pressed && styles.buttonPressed,
+                connectingDeviceId === device.id && styles.deviceConnecting,
+              ]}
+              onPress={() => handleConnect(device)}
+              disabled={connectingDeviceId !== null}
+            >
               <Text style={styles.deviceItemName}>{device.name ?? device.id}</Text>
-              {device.rssi !== null && (
+              {connectingDeviceId === device.id && (
+                <Text style={styles.connectingText}>Connecting…</Text>
+              )}
+              {device.rssi !== null && connectingDeviceId !== device.id && (
                 <Text style={styles.deviceItemRssi}>Signal: {device.rssi} dBm</Text>
               )}
-            </View>
+            </Pressable>
           ))}
         </View>
       )}
@@ -152,6 +211,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  deviceConnecting: {
+    opacity: 0.6,
+  },
   deviceItemName: {
     ...typography.body,
     fontWeight: "500",
@@ -159,6 +221,11 @@ const styles = StyleSheet.create({
   deviceItemRssi: {
     ...typography.caption,
     color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
+  connectingText: {
+    ...typography.caption,
+    color: colors.primary,
     marginTop: spacing.xs,
   },
 });

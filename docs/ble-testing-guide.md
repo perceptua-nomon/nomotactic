@@ -58,8 +58,8 @@ The nomotactic app now supports three different BLE implementations to accommoda
 
 **iOS**:
 - Apple Developer Account ($99/year)
-- Device provisioning certificate
-- `EXPO_PUBLIC_PROVISIONING_PROFILE_ID` set in `.env`
+- A development build provisioned via EAS Build (`eas build --profile development --platform ios`).
+  iOS provisioning is handled automatically by EAS Build — no manual profile configuration is required.
 
 **Android**:
 - No special provisioning needed

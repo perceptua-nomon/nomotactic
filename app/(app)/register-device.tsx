@@ -10,7 +10,7 @@
  * console along with a display name to complete HTTP registration.
  */
 
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
     ActivityIndicator,
@@ -23,11 +23,13 @@ import {
 } from "react-native";
 
 import { useAuth } from "@/lib/auth";
+import { updateLocalDevice } from "@/lib/local-devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 export default function RegisterDeviceScreen() {
   const router = useRouter();
   const { pairWithDevice } = useAuth();
+  const { deviceId } = useLocalSearchParams<{ deviceId?: string }>();
 
   const [pairingCode, setPairingCode] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -40,7 +42,12 @@ export default function RegisterDeviceScreen() {
     setError(null);
     try {
       await pairWithDevice(pairingCode.trim(), displayName.trim());
-      router.replace("/(app)");
+      if (deviceId) {
+        await updateLocalDevice(deviceId, { name: displayName.trim() });
+        router.replace(`/(app)/device/${deviceId}`);
+      } else {
+        router.replace("/(app)");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Registration failed. Check your connection and try again.");
     } finally {

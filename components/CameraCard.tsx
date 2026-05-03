@@ -6,9 +6,9 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { deviceApi } from "@/lib/api";
 import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
 
 interface StreamStatus {
   running: boolean;
@@ -20,14 +20,12 @@ export function CameraCard() {
   const [lastCapture, setLastCapture] = useState<string | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const sendCommand = useDeviceCommand();
 
   async function captureStill() {
     try {
       const filename = `capture_${Date.now()}.jpg`;
-      await deviceApi(ENDPOINTS.CAMERA_CAPTURE, {
-        method: "POST",
-        body: { filename },
-      });
+      await sendCommand(ENDPOINTS.CAMERA_CAPTURE, { filename });
       setLastCapture(filename);
       setFeedback(`Captured: ${filename}`);
     } catch (err) {
@@ -38,14 +36,11 @@ export function CameraCard() {
   async function toggleStream() {
     try {
       if (streamUrl) {
-        await deviceApi(ENDPOINTS.STREAM_STOP, { method: "POST" });
+        await sendCommand(ENDPOINTS.STREAM_STOP, {});
         setStreamUrl(null);
         setFeedback("Stream stopped");
       } else {
-        const status = await deviceApi<StreamStatus>(ENDPOINTS.STREAM_START, {
-          method: "POST",
-          body: {},
-        });
+        const status = await sendCommand<StreamStatus>(ENDPOINTS.STREAM_START, {});
         setStreamUrl(status.url);
         setFeedback(`Stream at: ${status.url}`);
       }

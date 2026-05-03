@@ -441,15 +441,25 @@ export class RealBleService extends BaseBleService {
   private _manager: BleManagerInstance | null = null;
   private _device: BleDeviceInstance | null = null;
   private _notifySub: { remove(): void } | null = null;
-  // Single in-flight command assumed; concurrent callers will overwrite each other's callbacks.
-  private _pendingResponse: PendingResponse | null = null;
+  private _pendingResponses: Map<string, PendingResponse> = new Map();
+  private _pairedCache: Map<string, string | null> = new Map();
   private _responseBuffer = "";
 
   async getPairedDevices(): Promise<BleDevice[]> {
-    // react-native-ble-plx doesn't provide an easy way to list bonded devices
-    // from JavaScript. Users can discover devices via scan or use previously
-    // saved IDs. For now, return empty array and rely on "Add New Device" scan.
-    return [];
+    const manager = await this.getManager();
+    try {
+      const connected = await manager.connectedDevices([NOMON_SERVICE_UUID]);
+      for (const d of connected) {
+        this._pairedCache.set(d.id, d.name ?? d.localName ?? null);
+      }
+    } catch {
+      // connectedDevices may not be supported on all firmware versions — fall back to cache
+    }
+    return Array.from(this._pairedCache.entries()).map(([id, name]) => ({
+      id,
+      name,
+      rssi: null,
+    }));
   }
 
   private async getManager(): Promise<BleManagerInstance> {
@@ -509,6 +519,7 @@ export class RealBleService extends BaseBleService {
       await device.discoverAllServicesAndCharacteristics();
       this._device = device;
       this._responseBuffer = "";
+      this._pairedCache.set(deviceId, device.name ?? device.localName ?? null);
 
       // Tear down any previous notification subscription before creating a new one.
       this._notifySub?.remove();
@@ -520,11 +531,13 @@ export class RealBleService extends BaseBleService {
         RESPONSE_NOTIFY_CHAR_UUID,
         (error: unknown, characteristic: CharacteristicInstance | null) => {
           if (error) {
-            this._pendingResponse?.reject(
-              new Error(
-                `Response notification error: ${error instanceof Error ? error.message : String(error)}`,
-              ),
+            const notifyErr = new Error(
+              `Response notification error: ${error instanceof Error ? error.message : String(error)}`,
             );
+            for (const pending of this._pendingResponses.values()) {
+              pending.reject(notifyErr);
+            }
+            this._pendingResponses.clear();
             return;
           }
           if (characteristic?.value) {
@@ -534,9 +547,15 @@ export class RealBleService extends BaseBleService {
             for (const line of consumed.lines) {
               try {
                 const resp = JSON.parse(line) as IpcResponse;
-                this._pendingResponse?.resolve(resp);
+                const pending = this._pendingResponses.get(resp.id);
+                if (pending) {
+                  pending.resolve(resp);
+                }
               } catch {
-                this._pendingResponse?.reject(new Error(`Invalid JSON response: ${line}`));
+                for (const p of this._pendingResponses.values()) {
+                  p.reject(new Error(`Invalid JSON response: ${line}`));
+                }
+                this._pendingResponses.clear();
               }
             }
 
@@ -563,6 +582,10 @@ export class RealBleService extends BaseBleService {
   async disconnect(): Promise<void> {
     this._notifySub?.remove();
     this._notifySub = null;
+    for (const pending of this._pendingResponses.values()) {
+      pending.reject(new Error("Disconnected"));
+    }
+    this._pendingResponses.clear();
     if (this._device) {
       try {
         await this._device.cancelConnection();
@@ -602,22 +625,22 @@ export class RealBleService extends BaseBleService {
 
     const responsePromise = new Promise<IpcResponse>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this._pendingResponse = null;
+        this._pendingResponses.delete(id);
         reject(new Error(`Command '${method}' timed out`));
       }, 10000);
 
-      this._pendingResponse = {
+      this._pendingResponses.set(id, {
         resolve: (resp: IpcResponse) => {
           clearTimeout(timeout);
-          this._pendingResponse = null;
+          this._pendingResponses.delete(id);
           resolve(resp);
         },
         reject: (err: Error) => {
           clearTimeout(timeout);
-          this._pendingResponse = null;
+          this._pendingResponses.delete(id);
           reject(err);
         },
-      };
+      });
     });
 
     // Chunk the NDJSON line at MTU boundary and write to the Command char.
@@ -669,7 +692,7 @@ export class WebBleService extends BaseBleService {
       const stored = localStorage.getItem(WebBleService.PAIRED_DEVICES_KEY);
       if (!stored) return [];
 
-      const devicesData = JSON.parse(stored) as Array<{ id: string; name?: string }>;
+      const devicesData = JSON.parse(stored) as { id: string; name?: string }[];
       return devicesData.map((d) => ({
         id: d.id,
         name: d.name ?? null,
@@ -683,7 +706,7 @@ export class WebBleService extends BaseBleService {
   private _savePairedDevice(deviceId: string, deviceName?: string): void {
     try {
       const stored = localStorage.getItem(WebBleService.PAIRED_DEVICES_KEY);
-      const devicesData = stored ? (JSON.parse(stored) as Array<{ id: string; name?: string }>) : [];
+      const devicesData = stored ? (JSON.parse(stored) as { id: string; name?: string }[]) : [];
       
       const exists = devicesData.some((d) => d.id === deviceId);
       if (!exists) {
@@ -958,6 +981,7 @@ interface BleManagerInstance {
     id: string,
     options?: { requestMTU?: number },
   ): Promise<BleDeviceInstance>;
+  connectedDevices(serviceUUIDs: string[]): Promise<BleDeviceInstance[]>;
   onDeviceDisconnected(
     id: string,
     callback: (error: unknown, device: BleDeviceInstance | null) => void,
@@ -1053,4 +1077,25 @@ function uint8ToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+// ---------------------------------------------------------------------------
+// Session registry — survives navigation transitions
+// ---------------------------------------------------------------------------
+
+const _sessionRegistry = new Map<string, BleService>();
+
+/** Store an active BleService instance keyed by OS BLE device ID. */
+export function registerBleSession(deviceId: string, ble: BleService): void {
+  _sessionRegistry.set(deviceId, ble);
+}
+
+/** Retrieve the active BleService for a given device ID, if any. */
+export function getBleSession(deviceId: string): BleService | undefined {
+  return _sessionRegistry.get(deviceId);
+}
+
+/** Remove a session from the registry (called on disconnect or cleanup). */
+export function clearBleSession(deviceId: string): void {
+  _sessionRegistry.delete(deviceId);
 }

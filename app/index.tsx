@@ -14,12 +14,12 @@ import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 export default function Index() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isGuest } = useAuth();
   const router = useRouter();
 
   if (isLoading) return null;
 
-  if (isAuthenticated) {
+  if (isAuthenticated || isGuest) {
     return <Redirect href="/(app)" />;
   }
 

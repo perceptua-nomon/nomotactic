@@ -1,33 +1,28 @@
-import assert from "assert";
 import { consumeNdjsonChunks, extractAuthToken } from "../lib/ble";
 
-// NDJSON chunking tests
-(function testConsumeNdjsonChunksSimple() {
+test("consumeNdjsonChunks — complete single line", () => {
   const msg1 = '{"id":"1","ok":true,"result":{"v":1}}\n';
   const res = consumeNdjsonChunks("", msg1);
-  assert.strictEqual(res.lines.length, 1, "should parse one complete line");
-  assert.strictEqual(res.buffer, "", "buffer should be empty after complete line");
-  assert.strictEqual(JSON.parse(res.lines[0]).id, "1");
-})();
+  expect(res.lines).toHaveLength(1);
+  expect(res.buffer).toBe("");
+  expect(JSON.parse(res.lines[0]).id).toBe("1");
+});
 
-(function testConsumeNdjsonChunksPartial() {
+test("consumeNdjsonChunks — partial then complete", () => {
   const part1 = '{"id":"2","ok":true,"result":{"v":2}}';
   const part2 = "\n{" + '"id":"3","ok":true,"result":{"v":3}}\n';
   const r1 = consumeNdjsonChunks("", part1);
-  assert.strictEqual(r1.lines.length, 0, "no complete lines yet");
+  expect(r1.lines).toHaveLength(0);
   const r2 = consumeNdjsonChunks(r1.buffer, part2);
-  assert.strictEqual(r2.lines.length, 2, "should parse two lines after second chunk");
+  expect(r2.lines).toHaveLength(2);
   const ids = r2.lines.map((l) => JSON.parse(l).id).sort();
-  assert.deepStrictEqual(ids, ["2", "3"], "parsed ids match expected");
-})();
+  expect(ids).toEqual(["2", "3"]);
+});
 
-// Token extraction tests
-(function testExtractAuthToken() {
-  assert.strictEqual(extractAuthToken({ token: "t1" }), "t1");
-  assert.strictEqual(extractAuthToken({ jwt: "j1" }), "j1");
-  assert.strictEqual(extractAuthToken({ access_token: "a1" }), "a1");
-  assert.strictEqual(extractAuthToken({}), null);
-  assert.strictEqual(extractAuthToken(null), null);
-})();
-
-console.log("ble_parsing tests passed");
+test("extractAuthToken — resolves token, jwt, and access_token fields", () => {
+  expect(extractAuthToken({ token: "t1" })).toBe("t1");
+  expect(extractAuthToken({ jwt: "j1" })).toBe("j1");
+  expect(extractAuthToken({ access_token: "a1" })).toBe("a1");
+  expect(extractAuthToken({})).toBeNull();
+  expect(extractAuthToken(null)).toBeNull();
+});

@@ -12,12 +12,13 @@
 | 1.6 | AI-Ready Command Input | ✅ Complete |
 | 2 | BLE Integration | ✅ Complete |
 | 2.1 | BLE Simplification | ✅ Complete |
+| 2.2 | BLE Pairing Architecture Corrections | ✅ Complete |
 
 ---
 
 ## Current State
 
-Phases 1 and 2 are complete. The app has:
+Phases 1, 2, 2.1, and 2.2 are complete. The app has:
 - Expo SDK 54 with expo-router navigation
 - Dark theme, typed API client with auth injection and 401 retry guard
 - JWT auth flow with expo-secure-store (mobile) / localStorage (web)
@@ -29,6 +30,9 @@ Phases 1 and 2 are complete. The app has:
 - WiFi provisioning over BLE
 - Connection state indicator with auto-reconnect
 - AI-ready command input bar
+- Guest mode: unauthenticated users can BLE-pair without an account
+- BLE session registry: active sessions persist across navigation transitions
+- Local device registry: BLE-paired devices appear on the dashboard with a "Local" badge
 - `npx expo lint` clean
 
 ### Hotfixes
@@ -457,6 +461,96 @@ the HTTPS API client, making every IPC method automatically available.
 - [x] Crypto dependencies removed (`@noble/ciphers`, `@noble/hashes`)
 - [x] `npx expo lint` clean
 - [x] No third-party UI component libraries added
+
+### Phase 2.2 — BLE Pairing Architecture Corrections ✅ Complete
+
+**Goal:** Fix three bugs in the BLE pairing flow that prevent the intended
+unauthenticated pairing path from working end-to-end.
+
+**Issues addressed:**
+- F-01: Auth guard blocks BLE pairing for unauthenticated users
+- F-04: BLE session is discarded when navigating to the device page
+- F-05: Newly paired device doesn't appear on the dashboard
+
+See [ADR-003](adr/003-ble-pairing-arch-corrections.md) for design rationale.
+
+#### 2.2.1 — Guest Mode (F-01)
+
+- [x] `lib/auth.tsx` — add `isGuest: boolean` to `AuthState`; add
+      `continueAsGuest(): void` action (in-memory flag, cleared on restart and logout)
+- [x] `app/login.tsx` — add "Continue without account" `Pressable` below the form
+      card; calls `continueAsGuest()` + `router.replace('/(app)')`
+- [x] `app/index.tsx` — update redirect check: `if (isAuthenticated || isGuest)`
+- [x] `app/(app)/_layout.tsx`:
+  - Change auth guard: `if (!isAuthenticated && !isGuest)` → redirect to `/login`
+  - Top bar: render "Sign In" link for guests (navigates to `/login`) in place
+    of the "Logout" button
+
+**Exit criteria:**
+- Guest user reaches `/(app)` dashboard without logging in
+- Authenticated users unaffected
+- `npx expo lint` clean
+
+#### 2.2.2 — BLE Session Registry (F-04)
+
+- [x] `lib/ble.ts` — add module-level `Map<string, BleService>` registry; export
+      `registerBleSession(deviceId, ble)`, `getBleSession(deviceId)`,
+      `clearBleSession(deviceId)`
+- [x] `lib/transport.tsx`:
+  - Add `activateSession(deviceId: string): Promise<void>` to context value —
+    looks up registry, wires `bleServiceRef.current`, checks WiFi, sets mode
+  - Add `AppState` change listener in provider: call `disconnectDevice()` when
+    app moves to background
+  - `disconnectDevice()` calls `clearBleSession(deviceId)` before resetting state
+- [x] `app/_layout.tsx` — add `<TransportProvider>` wrapping inside `<AuthProvider>`
+- [x] `app/(app)/device/[id].tsx`:
+  - Remove per-page `<TransportProvider>` wrapper
+  - Add `useEffect(() => { transport.activateSession(id); }, [id])` via root
+    transport context
+- [x] `components/BlePairingFlow.tsx` — call `registerBleSession(deviceId, ble)`
+      after `ble.authenticate()` succeeds; navigate to
+      `/(app)/register-device?deviceId=${deviceId}`
+
+**Exit criteria:**
+- Navigating from pairing flow to device page does not drop the BLE connection
+- `transport.mode` is `'ble'` or `'https'` (not `'disconnected'`) on device page mount
+- App backgrounding disconnects BLE and clears session
+- `npx expo lint` clean
+
+#### 2.2.3 — Local Device Registry (F-05)
+
+- [x] `lib/local-devices.ts` — **new file**: `LocalDevice` type + CRUD over
+      cross-platform storage (`nomon_local_devices` key); no new npm dependency
+- [x] `lib/devices.ts`:
+  - Add `source: 'central' | 'local'` field to `Device` interface
+  - `useDevices` loads `getLocalDevices()` in parallel with central API fetch
+  - Merges results; deduplicates by VIN (central wins); local devices tagged
+    `source: 'local'`
+- [x] `components/BlePairingFlow.tsx` — call `saveLocalDevice(...)` after
+      `registerBleSession`; navigate to `/(app)/register-device?deviceId=${deviceId}`
+- [x] `app/(app)/register-device.tsx`:
+  - Read `deviceId` from `useLocalSearchParams()`
+  - After successful `pairWithDevice()`: fetch `/api/status` to retrieve VIN,
+    then call `updateLocalDevice(deviceId, { vin })`
+  - Navigate to `/(app)/device/${deviceId}` (not `/(app)`)
+- [x] `app/(app)/index.tsx` — render "Local" pill badge for
+      `device.source === 'local'` in `renderDeviceCard()`
+
+**Exit criteria:**
+- Freshly paired device appears on dashboard immediately after pairing (before
+  any central fleet registration)
+- Local device badge is visually distinguishable from fleet-registered devices
+- `useDevices` works for guest users (central API unavailable; local list shows)
+- `npx expo lint` clean
+
+#### Phase 2.2 Exit Criteria
+
+- [x] User can BLE-pair a device without logging in
+- [x] Active BLE session survives navigation to the device page
+- [x] Paired device appears on the dashboard for both guest and authenticated users
+- [x] `npx expo lint` clean across all modified files
+
+---
 
 ### Phase 3 — AI Integration (Planned)
 

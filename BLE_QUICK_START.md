@@ -8,12 +8,23 @@ EXPO_PUBLIC_ENABLE_BLE_MOCK_MODE=true npm start
 # Select your platform: i (iOS) or a (Android)
 ```
 
-**In the app**:
-1. Navigate to pairing screen
-2. Click "Scan for Nearby Devices"
-3. Select "nomon-alpha" or "nomon-beta" from mock list
-4. Click to connect (simulated ~800ms)
-5. Verify navigation to device dashboard
+**In the app** (real device — BLE mock mode disabled):
+1. On the login screen, log in **or** tap **"Continue without account"**
+2. Navigate to the Devices dashboard
+3. Tap **"Scan for Nearby Devices"** in the Add Device card
+4. Select your nomon device from the scan results
+5. Enter the 6-digit passkey shown by the OS Bluetooth dialog
+6. App authenticates over BLE and registers the device locally
+7. Verify device appears on the dashboard with a **"Local"** badge
+8. Tap the device card — BLE session is already active, no reconnection needed
+
+**In the app** (mock mode — `EXPO_PUBLIC_ENABLE_BLE_MOCK_MODE=true`):
+1. On the login screen, log in **or** tap **"Continue without account"**
+2. Navigate to the Devices dashboard
+3. Tap **"Scan for Nearby Devices"**
+4. Select a mock device from the list
+5. Tap the device card to connect (simulated ~800 ms)
+6. Verify device appears on dashboard with **"Local"** badge and device page loads with active session
 
 ## 🌐 Test BLE on Web (Real Web Bluetooth)
 
@@ -72,6 +83,19 @@ See [docs/ble-testing-guide.md](./docs/ble-testing-guide.md) for:
 
 ## 🔧 Files Modified
 
-- `lib/ble.ts` — Added WebBleService + mock flag support
-- `constants/config.ts` — Added ENABLE_BLE_MOCK_MODE flag
-- `docs/ble-testing-guide.md` — Complete testing guide (new)
+- `lib/ble.ts` — BLE session registry (`registerBleSession`, `getBleSession`, `clearBleSession`)
+- `lib/auth.tsx` — Guest mode: `isGuest` flag, `continueAsGuest()` action
+- `lib/local-devices.ts` — Local device registry (new file)
+- `lib/devices.ts` — `source: 'central' | 'local'` field; merges local registry into fleet list
+- `lib/transport.tsx` — Root-level `TransportProvider`; `activateSession(deviceId)`
+- `app/_layout.tsx` — `TransportProvider` lifted to root layout
+- `app/login.tsx` — "Continue without account" button
+- `app/index.tsx` — Guest redirect support
+- `app/(app)/_layout.tsx` — Auth guard allows guests; top bar adapts
+- `app/(app)/device/[id].tsx` — Calls `activateSession` on mount
+- `components/BlePairingFlow.tsx` — Registers BLE session; saves local device record
+- `components/AddDeviceSection.tsx` — Scanned devices are `<Pressable>` with connect handlers
+- `components/RoutineCard.tsx` — Migrated to `useDeviceCommand()`
+- `components/CameraCard.tsx` — Migrated to `useDeviceCommand()`
+- `components/ConnectionIndicator.tsx` — Reconnect handler implemented
+- `constants/config.ts` — `ENABLE_BLE_MOCK_MODE` flag

@@ -6,9 +6,9 @@ import React, { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ExpandableCard } from "@/components/ExpandableCard";
-import { deviceApi } from "@/lib/api";
 import { ENDPOINTS } from "@/lib/endpoints";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { useDeviceCommand } from "@/lib/useDeviceCommand";
 import { usePolling } from "@/lib/usePolling";
 
 interface RoutineStatus {
@@ -23,25 +23,23 @@ interface RoutineStatus {
 export function RoutineCard() {
   const [status, setStatus] = useState<RoutineStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const sendCommand = useDeviceCommand();
 
   const pollStatus = useCallback(async () => {
     try {
-      const data = await deviceApi<RoutineStatus>(ENDPOINTS.ROUTINE_STATUS);
+      const data = await sendCommand<RoutineStatus>(ENDPOINTS.ROUTINE_STATUS);
       setStatus(data);
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     }
-  }, []);
+  }, [sendCommand]);
 
   usePolling(pollStatus, 3_000);
 
   async function startExplore() {
     try {
-      await deviceApi(ENDPOINTS.ROUTINE_START, {
-        method: "POST",
-        body: { name: "explore" },
-      });
+      await sendCommand(ENDPOINTS.ROUTINE_START, { name: "explore" });
       await pollStatus();
     } catch (err) {
       setError((err as Error).message);
@@ -50,7 +48,7 @@ export function RoutineCard() {
 
   async function stopRoutine() {
     try {
-      await deviceApi(ENDPOINTS.ROUTINE_STOP, { method: "POST" });
+      await sendCommand(ENDPOINTS.ROUTINE_STOP, {});
       await pollStatus();
     } catch (err) {
       setError((err as Error).message);

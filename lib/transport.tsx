@@ -5,11 +5,12 @@
  * provisioning flow, and exposes a unified `sendCommand()` for components.
  */
 
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState } from "react-native";
 
 import { deviceApi } from "@/lib/api";
 import type { BleService } from "@/lib/ble";
-import { createBleService } from "@/lib/ble";
+import { clearBleSession, createBleService, getBleSession } from "@/lib/ble";
 import { ENDPOINTS } from "@/lib/endpoints";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +43,12 @@ interface TransportContextValue extends TransportState {
    * For BLE: `method` is mapped to a BLE command method name.
    */
   sendCommand: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+
+  /**
+   * Activate a BLE session from the registry for the given device.
+   * Called by the device detail page on mount to reconnect without re-pairing.
+   */
+  activateSession: (deviceId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,14 +89,18 @@ export function TransportProvider({ children }: TransportProviderProps) {
   const [isConnected, setIsConnected] = useState(true);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const bleServiceRef = useRef<BleService | null>(null);
+  const activeDeviceIdRef = useRef<string | null>(null);
+  const bleStatusUnsubRef = useRef<(() => void) | null>(null);
 
   const connectViaBle = useCallback(
     async (targetDeviceId: string) => {
       const ble = bleServiceRef.current ?? createBleService();
       bleServiceRef.current = ble;
+      activeDeviceIdRef.current = targetDeviceId;
 
-      // Register disconnect handler
-      ble.onStatusChange((status) => {
+      // Register disconnect handler — cancel any previous subscription first
+      bleStatusUnsubRef.current?.();
+      bleStatusUnsubRef.current = ble.onStatusChange((status) => {
         if (status === "disconnected") {
           setMode("disconnected");
           setIsConnected(false);
@@ -123,13 +134,62 @@ export function TransportProvider({ children }: TransportProviderProps) {
   );
 
   const disconnectDevice = useCallback(async () => {
+    bleStatusUnsubRef.current?.();
+    bleStatusUnsubRef.current = null;
     if (bleServiceRef.current) {
       await bleServiceRef.current.disconnect();
+      bleServiceRef.current = null;
+    }
+    if (activeDeviceIdRef.current) {
+      clearBleSession(activeDeviceIdRef.current);
+      activeDeviceIdRef.current = null;
     }
     setMode("disconnected");
     setIsConnected(false);
     setDeviceId(null);
   }, []);
+
+  const activateSession = useCallback(async (targetDeviceId: string): Promise<void> => {
+    const ble = getBleSession(targetDeviceId);
+    if (!ble) return;
+
+    bleServiceRef.current = ble;
+    activeDeviceIdRef.current = targetDeviceId;
+
+    // Cancel any previous subscription before registering
+    bleStatusUnsubRef.current?.();
+    bleStatusUnsubRef.current = ble.onStatusChange((status) => {
+      if (status === "disconnected") {
+        setMode("disconnected");
+        setIsConnected(false);
+      }
+    });
+
+    setDeviceId(targetDeviceId);
+
+    try {
+      const wifiStatus = await ble.getWifiStatus();
+      if (wifiStatus.state === "connected") {
+        setMode("https");
+        setIsConnected(true);
+        return;
+      }
+    } catch {
+      // WiFi status check failed — stay on BLE
+    }
+
+    setMode("ble");
+    setIsConnected(true);
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState === "background" || nextAppState === "inactive") {
+        void disconnectDevice();
+      }
+    });
+    return () => subscription.remove();
+  }, [disconnectDevice]);
 
   const sendCommand = useCallback(
     async (
@@ -157,8 +217,9 @@ export function TransportProvider({ children }: TransportProviderProps) {
       connectViaBle,
       disconnectDevice,
       sendCommand,
+      activateSession,
     }),
-    [mode, isConnected, deviceId, connectViaBle, disconnectDevice, sendCommand],
+    [mode, isConnected, deviceId, connectViaBle, disconnectDevice, sendCommand, activateSession],
   );
 
   return (

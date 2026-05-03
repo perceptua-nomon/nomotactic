@@ -5,6 +5,7 @@
  * coloring. Tap to manually reconnect when disconnected.
  */
 
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -12,18 +13,29 @@ import { borderRadius, colors, spacing } from "@/lib/theme";
 import { useTransport } from "@/lib/transport";
 
 export function ConnectionIndicator() {
-  const { mode, deviceId } = useTransport();
+  const { mode, activateSession } = useTransport();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const router = useRouter();
 
   const config = STATUS_CONFIG[mode];
+
+  async function handleReconnect() {
+    const deviceId = Array.isArray(params.id) ? params.id[0] : params.id;
+    if (mode === "ble" && deviceId) {
+      try {
+        await activateSession(deviceId);
+      } catch {
+        router.replace("/(app)");
+      }
+    } else {
+      router.replace("/(app)");
+    }
+  }
 
   return (
     <Pressable
       style={[styles.container, { backgroundColor: config.bg }]}
-      onPress={() => {
-        if (mode === "disconnected" && deviceId) {
-          // Trigger reconnect — user must re-pair via dashboard
-        }
-      }}
+      onPress={handleReconnect}
     >
       <View style={styles.content}>
         <Text style={[styles.icon, { color: config.color }]}>

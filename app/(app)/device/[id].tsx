@@ -3,11 +3,12 @@
  *
  * Renders the same card set as the original dashboard
  * (StatusCard, MotorCard, CameraCard, SensorCard, RoutineCard).
- * Wrapped in TransportProvider for BLE/HTTPS routing.
+ * Uses the root-level TransportProvider; activates the BLE session
+ * from the registry on mount so navigation doesn't drop the connection.
  */
 
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React from "react";
+import React, { useEffect } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { CameraCard } from "@/components/CameraCard";
@@ -17,33 +18,38 @@ import { RoutineCard } from "@/components/RoutineCard";
 import { SensorCard } from "@/components/SensorCard";
 import { StatusCard } from "@/components/StatusCard";
 import { colors, spacing, typography } from "@/lib/theme";
-import { TransportProvider } from "@/lib/transport";
+import { useTransport } from "@/lib/transport";
 
 export default function DeviceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { activateSession } = useTransport();
+
+  useEffect(() => {
+    if (id) {
+      void activateSession(id);
+    }
+  }, [id, activateSession]);
 
   return (
-    <TransportProvider>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-      >
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()}>
-            <Text style={styles.backButton}>{"\u2190"} Back</Text>
-          </Pressable>
-          <Text style={styles.title}>Device: {id}</Text>
-        </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+    >
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()}>
+          <Text style={styles.backButton}>{"\u2190"} Back</Text>
+        </Pressable>
+        <Text style={styles.title}>Device: {id}</Text>
+      </View>
 
-        <ConnectionIndicator />
-        <StatusCard />
-        <MotorCard />
-        <CameraCard />
-        <SensorCard />
-        <RoutineCard />
-      </ScrollView>
-    </TransportProvider>
+      <ConnectionIndicator />
+      <StatusCard />
+      <MotorCard />
+      <CameraCard />
+      <SensorCard />
+      <RoutineCard />
+    </ScrollView>
   );
 }
 
@@ -68,3 +74,4 @@ const styles = StyleSheet.create({
     ...typography.heading,
   },
 });
+

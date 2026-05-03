@@ -68,7 +68,7 @@ codebase.
 | Feature | Android | iOS | Web |
 |---------|---------|-----|-----|
 | Device control (WiFi) | ✅ | ✅ | ✅ |
-| Device control (BLE) | 🔲 Future | 🔲 Future | ❌ |
+| Device control (BLE) | ✅ Implemented (Phase 2) | ✅ Implemented (Phase 2) | ❌ |
 | Camera feed (MJPEG) | ✅ | ✅ | ✅ |
 | Auth (login/register) | ✅ | ✅ | ✅ |
 | Fleet dashboard | ✅ | ✅ | ✅ |
