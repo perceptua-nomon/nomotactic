@@ -8,7 +8,7 @@ User-facing application for the nomon robot fleet. Built with Expo (React Native
 |---------|---------|-----|-----|
 | Device control (WiFi) | ✅ | ✅ | ✅ |
 | Device pairing | ✅ | ✅ | ✅ |
-| Device control (BLE) | 🔲 Future | 🔲 Future | ❌ |
+| Device control (BLE) | ✅ | ✅ | ❌ |
 | Auth (login/register) | ✅ | ✅ | ✅ |
 | Fleet dashboard | ✅ | ✅ | ✅ |
 | Landing page | — | — | ✅ |
@@ -48,9 +48,7 @@ constants/
 lib/
   api.ts                 Typed fetch wrapper with per-URL auth injection
   auth.tsx               Auth context + secure token storage + pairing helpers
-  ble.ts                 BLE service interface + mock implementation
-  ble-protocol.ts        Binary frame codec for BLE GATT
-  ble-session.ts         AES-128-CCM session encryption + HKDF key derivation
+  ble.ts                 BLE service: OS passkey pairing, NDJSON relay, WiFi provisioning
   transport.tsx          Hybrid transport provider: BLE ↔ HTTPS switching
   devices.ts             Fleet device hook and mappers
   endpoints.ts           API endpoint string constants

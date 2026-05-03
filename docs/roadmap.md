@@ -11,23 +11,28 @@
 | 1.5 | BLE Abstraction Stubs | ✅ Complete |
 | 1.6 | AI-Ready Command Input | ✅ Complete |
 | 2 | BLE Integration | ✅ Complete |
+| 2.1 | BLE Simplification | ✅ Complete |
+| 2.2 | BLE Pairing Architecture Corrections | ✅ Complete |
 
 ---
 
 ## Current State
 
-Phases 1 and 2 are complete. The app has:
+Phases 1, 2, 2.1, and 2.2 are complete. The app has:
 - Expo SDK 54 with expo-router navigation
 - Dark theme, typed API client with auth injection and 401 retry guard
 - JWT auth flow with expo-secure-store (mobile) / localStorage (web)
 - Device control dashboard with 5 expandable card components
 - Web landing page for unauthenticated visitors
-- BLE device discovery, pairing, and encrypted command interface
-- Binary protocol codec and AES-128-CCM session encryption
+- BLE device discovery, OS passkey pairing, and link-layer encrypted transport
+- NDJSON relay over BLE (same format as HTTPS API — no custom codec or encryption)
 - Hybrid transport layer (BLE ↔ HTTPS auto-switching)
 - WiFi provisioning over BLE
 - Connection state indicator with auto-reconnect
 - AI-ready command input bar
+- Guest mode: unauthenticated users can BLE-pair without an account
+- BLE session registry: active sessions persist across navigation transitions
+- Local device registry: BLE-paired devices appear on the dashboard with a "Local" badge
 - `npx expo lint` clean
 
 ### Hotfixes
@@ -202,7 +207,7 @@ implementation.
 
 ## Future
 
-### Phase 2 — BLE Integration (Planned)
+### Phase 2 — BLE Integration ✅ Complete
 
 **Goal:** Implement real BLE connectivity for device discovery, pairing,
 and basic control commands. BLE is the primary transport on mobile when WiFi
@@ -211,8 +216,9 @@ users are HTTPS-only (no BLE).
 
 **Architecture decisions:**
 - nomopractic ADR-001: BLE GATT server in nomopractic
-- nomopractic ADR-002: Binary protocol for BLE GATT
-- nomopractic ADR-003: BLE security model
+- nomopractic ADR-002: Binary protocol for BLE GATT ⚠️ Superseded by ADR-004
+- nomopractic ADR-003: BLE security model ⚠️ Superseded by ADR-004
+- nomopractic ADR-004: BLE Simplification — Native OS Pairing + NDJSON Relay ✅ (implemented in Phase 2.1)
 
 **Cross-repo dependencies:**
 - nomopractic Phase 13: BLE GATT server (must be deployed first)
@@ -247,6 +253,8 @@ limitation documented in architecture.md.
       `MockBleService` on web
 - [x] Platform guard: `Platform.OS === 'web'` returns mock; native returns real
 - [x] BLE permission request flow (Android 12+ runtime permissions)
+
+> ⚠️ **Phases 2.2–2.8 describe work superseded by Phase 2.1.** The binary codec, AES-128-CCM encryption, and custom pairing ceremony described below were fully removed and replaced by OS-level passkey pairing and NDJSON relay. These sections are retained for historical reference only.
 
 #### 2.3 — Binary Protocol Codec (`lib/ble-protocol.ts`)
 
@@ -340,7 +348,7 @@ limitation documented in architecture.md.
 
 #### Phase 2 Exit Criteria
 - [x] BLE device discovery finds nomon devices on mobile
-- [x] BLE pairing with secret exchange + session encryption works
+- [x] OS passkey pairing replaces custom pairing ceremony (no app-layer secret exchange)
 - [x] Motor, servo, and sensor commands work over BLE
 - [x] WiFi credentials exchangeable over BLE; Pi joins WiFi
 - [x] Auto-switch from BLE to HTTPS when WiFi becomes available
@@ -349,6 +357,200 @@ limitation documented in architecture.md.
 - [x] Web users unaffected (HTTPS only, motor controls hidden)
 - [x] `npx expo lint` clean
 - [x] No third-party UI component libraries added
+
+---
+
+### Phase 2.1 — BLE Simplification ✅ Complete
+
+**Goal:** Replace the custom BLE binary protocol, AES-128-CCM encryption,
+and application-layer pairing ceremony with OS-level Bluetooth passkey
+pairing and plain NDJSON commands. Reduces ~1,400 lines of BLE client code
+to ~400 lines. The simplified BLE layer sends the same JSON format used by
+the HTTPS API client, making every IPC method automatically available.
+
+**Architecture decisions:**
+- nomopractic ADR-004: BLE Simplification — Native OS Pairing + JSON Relay
+- Supersedes: nomopractic ADR-002 (Binary Protocol), ADR-003 (BLE Security Model)
+
+**Cross-repo dependencies:**
+- nomopractic Phase 13.1: simplified GATT server (must be deployed first)
+- nomothetic Phase 18.1: pairing secret format change (6-digit numeric passkey)
+
+#### 2.1.1 — Delete Superseded Modules
+- [x] Delete `lib/ble-protocol.ts` — binary protocol codec (324 lines)
+- [x] Delete `lib/ble-session.ts` — AES-128-CCM + HKDF key derivation (172 lines)
+- [x] Delete `lib/ble-registration.ts` — pending registration state (38 lines)
+- [x] Remove `@noble/ciphers` and `@noble/hashes` from `package.json`
+      (no longer needed without app-layer crypto)
+- [x] Verify: `npx expo lint` clean after import cleanup
+
+#### 2.1.2 — Simplified BLE Service (`lib/ble.ts`)
+- [x] Remove imports of `ble-protocol`, `ble-session`
+- [x] Remove `ConnectionStatus` value `"paired"` — bonding is OS-managed;
+      status goes from `"connecting"` directly to `"connected"` after bonding
+- [x] Remove `PairingResult` type and `pair(secret)` method
+- [x] Remove `session` property and `BleSession` field from `BaseBleService`
+- [x] Remove `sendCommand(opcode, payload)` method (binary)
+- [x] Add `sendJsonCommand(method: string, params: object): Promise<object>`:
+  - Build NDJSON request: `{ id, method, params }`
+  - Chunk at (MTU − 3) boundary, write chunks to Command Write characteristic
+  - Subscribe to Response Notify; accumulate chunks until `\n`
+  - Parse JSON response; return `result` or throw on error
+  - Sequence ID management: monotonic string counter
+  - Timeout: 10 s default (configurable)
+- [x] Rewrite typed command helpers (`getBattery`, `drive`, `steer`, etc.)
+      to call `sendJsonCommand()` instead of binary encode → encrypt → write
+- [x] Add `authenticate(): Promise<string>`:
+  - Calls `sendJsonCommand("authenticate", {})`
+  - Returns JWT string
+  - Stores JWT in `expo-secure-store`
+- [x] Rewrite WiFi methods (`scanWifi`, `connectWifi`, `getWifiStatus`)
+      to call `sendJsonCommand("wifi_scan", ...)` etc. instead of custom
+      WiFi characteristic writes
+- [x] `GATT UUIDs`: remove pairing, WiFi, and status service/characteristic
+      UUIDs. Keep: service `e3a10001-...`, Command Write `e3a12001-...`,
+      Response Notify `e3a12002-...`
+- [x] Update `RealBleService.connect()`:
+  - Connect to device (OS triggers passkey pairing dialog automatically)
+  - Negotiate MTU (request 247)
+  - Discover the single nomon service + 2 characteristics
+  - Subscribe to Response Notify
+  - Set status to `"connected"`
+  - No custom pairing ceremony — bonding is OS-managed
+- [x] Update `MockBleService` for web/testing (same interface changes)
+
+#### 2.1.3 — Simplified Pairing Flow (`components/BlePairingFlow.tsx`)
+- [x] Remove secret input field (`TextInput` for pairing secret)
+- [x] Remove `blePairingSecret` and `setBlePairingSecret` state
+- [x] Simplified flow:
+  1. Scan for devices (existing)
+  2. User selects a device from the list (existing)
+  3. Call `ble.connect(deviceId)` — OS shows native passkey dialog
+  4. User enters 6-digit passkey on phone (OS handles UI)
+  5. Once connected + bonded, call `ble.authenticate()` to get JWT
+  6. Store JWT and navigate to device control
+- [x] Update `handleBlePair()` to:
+  - Connect (triggers OS pairing)
+  - Authenticate (get JWT via BLE)
+  - Store JWT via auth context
+  - Navigate to device control
+- [x] Remove `setPendingBleRegistration` import (module deleted)
+
+#### 2.1.4 — Transport Layer Update
+- [x] Update `lib/transport.ts` (if applicable):
+  - Remove references to `BleSession`
+  - Remove encryption/decryption from transport path
+  - BLE transport now sends/receives plain JSON (same format as HTTPS)
+
+#### 2.1.5 — Architecture Documentation
+- [x] Update `docs/architecture.md`:
+  - Platform Modes table: update "Mobile, BLE only" row — remove "binary
+    protocol" reference, note NDJSON commands
+  - BLE data flow: scan → connect → OS passkey → authenticate → JSON commands
+  - Remove references to `ble-protocol.ts`, `ble-session.ts`
+
+#### Phase 2.1 Exit Criteria
+- [x] BLE device discovery works (unchanged)
+- [x] OS passkey pairing replaces custom pairing ceremony
+- [x] NDJSON commands work over BLE (same format as HTTPS/IPC)
+- [x] `authenticate` returns JWT after bonding
+- [x] WiFi provisioning uses standard JSON methods
+- [x] NDJSON chunking handles responses exceeding BLE MTU
+- [x] Auto-reconnect preserves bonding (no re-pairing needed)
+- [x] Web users unaffected (HTTPS only)
+- [x] Crypto dependencies removed (`@noble/ciphers`, `@noble/hashes`)
+- [x] `npx expo lint` clean
+- [x] No third-party UI component libraries added
+
+### Phase 2.2 — BLE Pairing Architecture Corrections ✅ Complete
+
+**Goal:** Fix three bugs in the BLE pairing flow that prevent the intended
+unauthenticated pairing path from working end-to-end.
+
+**Issues addressed:**
+- F-01: Auth guard blocks BLE pairing for unauthenticated users
+- F-04: BLE session is discarded when navigating to the device page
+- F-05: Newly paired device doesn't appear on the dashboard
+
+See [ADR-003](adr/003-ble-pairing-arch-corrections.md) for design rationale.
+
+#### 2.2.1 — Guest Mode (F-01)
+
+- [x] `lib/auth.tsx` — add `isGuest: boolean` to `AuthState`; add
+      `continueAsGuest(): void` action (in-memory flag, cleared on restart and logout)
+- [x] `app/login.tsx` — add "Continue without account" `Pressable` below the form
+      card; calls `continueAsGuest()` + `router.replace('/(app)')`
+- [x] `app/index.tsx` — update redirect check: `if (isAuthenticated || isGuest)`
+- [x] `app/(app)/_layout.tsx`:
+  - Change auth guard: `if (!isAuthenticated && !isGuest)` → redirect to `/login`
+  - Top bar: render "Sign In" link for guests (navigates to `/login`) in place
+    of the "Logout" button
+
+**Exit criteria:**
+- Guest user reaches `/(app)` dashboard without logging in
+- Authenticated users unaffected
+- `npx expo lint` clean
+
+#### 2.2.2 — BLE Session Registry (F-04)
+
+- [x] `lib/ble.ts` — add module-level `Map<string, BleService>` registry; export
+      `registerBleSession(deviceId, ble)`, `getBleSession(deviceId)`,
+      `clearBleSession(deviceId)`
+- [x] `lib/transport.tsx`:
+  - Add `activateSession(deviceId: string): Promise<void>` to context value —
+    looks up registry, wires `bleServiceRef.current`, checks WiFi, sets mode
+  - Add `AppState` change listener in provider: call `disconnectDevice()` when
+    app moves to background
+  - `disconnectDevice()` calls `clearBleSession(deviceId)` before resetting state
+- [x] `app/_layout.tsx` — add `<TransportProvider>` wrapping inside `<AuthProvider>`
+- [x] `app/(app)/device/[id].tsx`:
+  - Remove per-page `<TransportProvider>` wrapper
+  - Add `useEffect(() => { transport.activateSession(id); }, [id])` via root
+    transport context
+- [x] `components/BlePairingFlow.tsx` — call `registerBleSession(deviceId, ble)`
+      after `ble.authenticate()` succeeds; navigate to
+      `/(app)/register-device?deviceId=${deviceId}`
+
+**Exit criteria:**
+- Navigating from pairing flow to device page does not drop the BLE connection
+- `transport.mode` is `'ble'` or `'https'` (not `'disconnected'`) on device page mount
+- App backgrounding disconnects BLE and clears session
+- `npx expo lint` clean
+
+#### 2.2.3 — Local Device Registry (F-05)
+
+- [x] `lib/local-devices.ts` — **new file**: `LocalDevice` type + CRUD over
+      cross-platform storage (`nomon_local_devices` key); no new npm dependency
+- [x] `lib/devices.ts`:
+  - Add `source: 'central' | 'local'` field to `Device` interface
+  - `useDevices` loads `getLocalDevices()` in parallel with central API fetch
+  - Merges results; deduplicates by VIN (central wins); local devices tagged
+    `source: 'local'`
+- [x] `components/BlePairingFlow.tsx` — call `saveLocalDevice(...)` after
+      `registerBleSession`; navigate to `/(app)/register-device?deviceId=${deviceId}`
+- [x] `app/(app)/register-device.tsx`:
+  - Read `deviceId` from `useLocalSearchParams()`
+  - After successful `pairWithDevice()`: fetch `/api/status` to retrieve VIN,
+    then call `updateLocalDevice(deviceId, { vin })`
+  - Navigate to `/(app)/device/${deviceId}` (not `/(app)`)
+- [x] `app/(app)/index.tsx` — render "Local" pill badge for
+      `device.source === 'local'` in `renderDeviceCard()`
+
+**Exit criteria:**
+- Freshly paired device appears on dashboard immediately after pairing (before
+  any central fleet registration)
+- Local device badge is visually distinguishable from fleet-registered devices
+- `useDevices` works for guest users (central API unavailable; local list shows)
+- `npx expo lint` clean
+
+#### Phase 2.2 Exit Criteria
+
+- [x] User can BLE-pair a device without logging in
+- [x] Active BLE session survives navigation to the device page
+- [x] Paired device appears on the dashboard for both guest and authenticated users
+- [x] `npx expo lint` clean across all modified files
+
+---
 
 ### Phase 3 — AI Integration (Planned)
 

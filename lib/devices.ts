@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { centralApi } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
+import { getLocalDevices } from "@/lib/local-devices";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +35,7 @@ export interface Device {
   lastSeenAt: string | null;
   firmwareVersion: string | null;
   registeredAt: string;
+  source: "central" | "local";
 }
 
 /** Return value of the useDevices hook. */
@@ -65,6 +66,7 @@ function mapWireToDevice(wire: DeviceItemWire): Device {
     lastSeenAt,
     firmwareVersion: wire.firmware_version ?? null,
     registeredAt: wire.registered_at,
+    source: "central",
   };
 }
 
@@ -104,7 +106,6 @@ export function formatLastSeen(dateStr: string | null): string {
  * unreachable and a device is paired locally.
  */
 export function useDevices(): UseDevicesResult {
-  const { isDevicePaired } = useAuth();
   const [devices, setDevices] = useState<Device[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,35 +113,51 @@ export function useDevices(): UseDevicesResult {
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await centralApi<{ devices: DeviceItemWire[] }>(
-        "/api/fleet/devices",
-      );
-      setDevices(data.devices.map(mapWireToDevice));
-      setError(null);
-    } catch {
-      if (isDevicePaired) {
-        setDevices([
-          {
-            id: "local",
-            name: "Local Device",
-            isOnline: false,
-            batteryVoltage: null,
-            lastSeenAt: null,
-            firmwareVersion: null,
-            registeredAt: new Date().toISOString(),
-          },
-        ]);
+      const [centralResult, localResult] = await Promise.allSettled([
+        centralApi<{ devices: DeviceItemWire[] }>("/api/fleet/devices"),
+        getLocalDevices(),
+      ]);
+
+      const centralList: Device[] =
+        centralResult.status === "fulfilled"
+          ? centralResult.value.devices.map(mapWireToDevice)
+          : [];
+
+      const localDeviceList =
+        localResult.status === "fulfilled" ? localResult.value : [];
+
+      const centralIds = new Set(centralList.map((d) => d.id));
+      const localCards: Device[] = localDeviceList
+        .filter((ld) => !centralIds.has(ld.id))
+        .map((ld) => ({
+          id: ld.id,
+          name: ld.name,
+          isOnline: false,
+          batteryVoltage: null,
+          lastSeenAt: null,
+          firmwareVersion: null,
+          registeredAt: ld.pairedAt,
+          source: "local" as const,
+        }));
+
+      setDevices([...centralList, ...localCards]);
+
+      if (centralResult.status === "rejected") {
         setError(
-          "Fleet service unavailable \u2014 showing local devices only",
+          localCards.length > 0
+            ? "Fleet service unavailable \u2014 showing local devices only"
+            : "Fleet service unavailable",
         );
       } else {
-        setDevices([]);
-        setError("Fleet service unavailable");
+        setError(null);
       }
+    } catch {
+      setDevices([]);
+      setError("Failed to load devices");
     } finally {
       setIsLoading(false);
     }
-  }, [isDevicePaired]);
+  }, []);
 
   useEffect(() => {
     refresh();

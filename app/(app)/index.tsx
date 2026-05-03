@@ -2,15 +2,13 @@
  * Devices dashboard.
  *
  * Lists fleet devices with online status and last-seen info.
- * Includes a pairing form for adding new devices.
- * On mobile, includes BLE scan for nearby nomon devices.
+ * Includes native BLE pairing flow for connecting to new devices.
  */
 
 import { useRouter } from "expo-router";
 import React from "react";
 import {
     ActivityIndicator,
-    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -18,8 +16,8 @@ import {
     View,
 } from "react-native";
 
+import { AddDeviceSection } from "@/components/AddDeviceSection";
 import { BlePairingFlow } from "@/components/BlePairingFlow";
-import { HttpPairingForm } from "@/components/HttpPairingForm";
 import { type Device, formatLastSeen, useDevices } from "@/lib/devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
@@ -35,7 +33,12 @@ export default function DashboardScreen() {
         onPress={() => router.push(`/(app)/device/${device.id}`)}
       >
         <View style={styles.deviceHeader}>
-          <Text style={styles.deviceName}>{device.name}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Text style={styles.deviceName}>{device.name}</Text>
+            {device.source === "local" && (
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>Local</Text>
+            )}
+          </View>
           <View
             style={[
               styles.statusDot,
@@ -87,12 +90,9 @@ export default function DashboardScreen() {
 
       {!isLoading && devices.map(renderDeviceCard)}
 
-      {Platform.OS !== "web" && <BlePairingFlow />}
+      <AddDeviceSection onRefresh={refresh} />
 
-      <HttpPairingForm
-        defaultExpanded={!isLoading && devices.length === 0}
-        onPaired={refresh}
-      />
+      <BlePairingFlow onRefresh={refresh} />
     </ScrollView>
   );
 }

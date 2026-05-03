@@ -24,7 +24,7 @@ import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 export default function LoginScreen() {
-  const { login, register, isAuthenticated } = useAuth();
+  const { login, register, isAuthenticated, continueAsGuest } = useAuth();
   const router = useRouter();
 
   const [isRegisterMode, setIsRegisterMode] = useState(false);
@@ -55,6 +55,11 @@ export default function LoginScreen() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function handleContinueAsGuest() {
+    continueAsGuest();
+    router.replace("/(app)");
   }
 
   return (
@@ -130,6 +135,10 @@ export default function LoginScreen() {
               : "Need an account? Register"}
           </Text>
         </Pressable>
+
+        <Pressable onPress={handleContinueAsGuest} style={styles.guestButton}>
+          <Text style={styles.guestButtonText}>Continue without account</Text>
+        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -197,6 +206,14 @@ const styles = StyleSheet.create({
   toggle: {
     marginTop: spacing.lg,
     alignItems: "center",
+  },
+  guestButton: {
+    marginTop: spacing.md,
+    alignItems: "center",
+  },
+  guestButtonText: {
+    color: colors.textSecondary,
+    fontSize: 14,
   },
   toggleText: {
     color: colors.primary,

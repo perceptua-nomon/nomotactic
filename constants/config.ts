@@ -21,3 +21,9 @@ export const DATA_TIMEOUT_MS = 30_000;
 
 /** Interval for auto-refreshing status data (ms). */
 export const STATUS_REFRESH_INTERVAL_MS = 5_000;
+
+/**
+ * Enable mock BLE service on mobile for testing without provisioning.
+ * On web, always uses Web Bluetooth API (real) regardless of this flag.
+ */
+export const ENABLE_BLE_MOCK_MODE = process.env.EXPO_PUBLIC_ENABLE_BLE_MOCK_MODE === "true";

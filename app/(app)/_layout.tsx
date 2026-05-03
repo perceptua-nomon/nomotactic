@@ -6,7 +6,7 @@
  * Renders the CommandInput bar at the bottom (ADR-002).
  */
 
-import { Redirect, Slot } from "expo-router";
+import { Redirect, Slot, useRouter } from "expo-router";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -16,11 +16,12 @@ import { useAuth } from "@/lib/auth";
 import { colors, spacing, typography } from "@/lib/theme";
 
 export default function AppLayout() {
-  const { isAuthenticated, isLoading, logout } = useAuth();
+  const { isAuthenticated, isLoading, logout, isGuest } = useAuth();
+  const router = useRouter();
 
   if (isLoading) return null;
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !isGuest) {
     return <Redirect href="/login" />;
   }
 
@@ -28,9 +29,15 @@ export default function AppLayout() {
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <View style={styles.topBar}>
         <Text style={styles.brandText}>nomon</Text>
-        <Pressable onPress={logout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </Pressable>
+        {isGuest ? (
+          <Pressable onPress={() => router.push("/login")}>
+            <Text style={styles.logoutText}>Sign In</Text>
+          </Pressable>
+        ) : (
+          <Pressable onPress={logout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </Pressable>
+        )}
       </View>
       <View style={styles.content}>
         <Slot />
