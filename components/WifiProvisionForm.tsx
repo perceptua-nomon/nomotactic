@@ -74,6 +74,10 @@ export function WifiProvisionForm() {
           {"\u2026"} The hotspot will shut down automatically once the device
           joins your home network.
         </Text>
+        <Text style={styles.instructionText}>
+          Your device is connecting. Once connected, switch your phone back to
+          your home network.
+        </Text>
       </View>
     );
   }
@@ -153,6 +157,12 @@ const styles = StyleSheet.create({
   },
   ssidHighlight: {
     fontWeight: "600" as const,
+  },
+  instructionText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: "center" as const,
+    marginTop: 8,
   },
   input: {
     backgroundColor: colors.background,
