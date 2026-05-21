@@ -41,6 +41,33 @@ let _onDeviceUnauthorised: (() => Promise<boolean>) | null = null;
 let _isDeviceRefreshing = false;
 
 /**
+ * Eagerly-set device access token — updated by AuthProvider immediately when
+ * a new token is acquired (bypasses the React render/useEffect cycle so that
+ * calls made in the same async turn as pairWithDevice() see the token).
+ */
+let _deviceAccessTokenEager: string | null = null;
+
+/** Directly set (or clear) the device access token without waiting for a
+ * React render cycle. Called by AuthProvider's persistDeviceTokens and
+ * unpairDevice. */
+export function setDeviceAccessToken(token: string | null): void {
+  _deviceAccessTokenEager = token;
+}
+
+/** Runtime-overridable device base URL (defaults to build-time DEVICE_API_URL). */
+let _deviceBaseUrl: string = DEVICE_API_URL;
+
+/** Update the device API base URL at runtime (e.g. after Soft AP → home network switch). */
+export function setDeviceBaseUrl(url: string): void {
+  _deviceBaseUrl = url;
+}
+
+/** Returns the current device API base URL. */
+export function getDeviceBaseUrl(): string {
+  return _deviceBaseUrl;
+}
+
+/**
  * Called by AuthProvider to wire central token access into the API client.
  */
 export function setTokenAccessors(
@@ -83,9 +110,10 @@ async function rawFetch<T>(
   };
 
   // Inject auth token: device token for device API, central token otherwise
-  const isDeviceRequest = baseUrl === DEVICE_API_URL;
-  const tokenGetter = isDeviceRequest ? _getDeviceAccessToken : _getAccessToken;
-  const token = tokenGetter?.();
+  const isDeviceRequest = baseUrl === _deviceBaseUrl;
+  const token = isDeviceRequest
+    ? (_deviceAccessTokenEager ?? _getDeviceAccessToken?.())
+    : _getAccessToken?.();
   if (token) {
     reqHeaders["Authorization"] = `Bearer ${token}`;
   }
@@ -168,12 +196,13 @@ export class ApiRequestError extends Error {
 
 /**
  * Make a request to the device-mode API (Pi).
+ * Uses the runtime-configurable device base URL (see setDeviceBaseUrl).
  */
 export async function deviceApi<T>(
   path: string,
   opts?: RequestOptions,
 ): Promise<T> {
-  return rawFetch<T>(DEVICE_API_URL, path, opts);
+  return rawFetch<T>(_deviceBaseUrl, path, opts);
 }
 
 /**
@@ -184,4 +213,47 @@ export async function centralApi<T>(
   opts?: RequestOptions,
 ): Promise<T> {
   return rawFetch<T>(CENTRAL_API_URL, path, opts);
+}
+
+// ---------------------------------------------------------------------------
+// Convenience helpers
+// ---------------------------------------------------------------------------
+
+/** Identity returned by the device /api/device/auth/identity endpoint. */
+export interface DeviceIdentity {
+  vin: string;
+  model: string;
+  hostname: string;
+  /** Short-lived proof JWT to submit alongside the VIN when registering with
+   *  the central fleet API. Valid for 5 minutes. */
+  registration_proof: string;
+}
+
+export interface DeviceSessionResetResponse {
+  success: boolean;
+  timestamp: string;
+}
+
+/** Invalidate the current device session and reopen pairing on the Pi. */
+export async function deleteDeviceSession(): Promise<DeviceSessionResetResponse> {
+  return deviceApi<DeviceSessionResetResponse>("/api/device/auth/session", {
+    method: "DELETE",
+  });
+}
+
+/** Fetch the device's VIN and model name (requires a valid device JWT). */
+export async function getDeviceIdentity(): Promise<DeviceIdentity> {
+  return deviceApi<DeviceIdentity>("/api/device/auth/identity");
+}
+
+/** Register a device with the central fleet API (requires a valid central JWT). */
+export async function registerDeviceWithFleet(
+  vin: string,
+  model: string,
+  registrationProof: string,
+): Promise<void> {
+  await centralApi("/api/fleet/devices", {
+    method: "POST",
+    body: { vin, model, registration_proof: registrationProof },
+  });
 }

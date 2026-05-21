@@ -9,6 +9,14 @@
 export const DEVICE_API_URL =
   process.env.EXPO_PUBLIC_DEVICE_API_URL || "https://10.0.0.1:8443";
 
+/**
+ * Fixed HTTP address of the nomon device when broadcasting its Soft AP.
+ * All device API calls during AP pairing use this URL.  Cleartext is
+ * intentional: the AP is a closed WPA2 hotspot on an isolated 192.168.4.0/24
+ * subnet (see ADR-016).
+ */
+export const SOFT_AP_URL = "http://192.168.4.1:8080";
+
 /** Base URL for the central-mode API (fleet management). */
 export const CENTRAL_API_URL =
   process.env.EXPO_PUBLIC_CENTRAL_API_URL || "https://nomon.example.com";

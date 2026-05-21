@@ -5,16 +5,25 @@
  * background.  The Soft AP watchdog shuts the hotspot down automatically once
  * the device achieves full internet connectivity.
  *
- * Uses `deviceApi` (from `lib/api`) so that the device JWT is injected
- * automatically, timeouts are enforced, and 401 responses trigger a
- * transparent token refresh — consistent with all other device API calls.
+ * After credentials are submitted, this component polls the device's mDNS
+ * hostname (stored by AuthProvider from the pairing response) until it
+ * responds on the home network, then automatically switches the active device
+ * URL — no manual URL entry required.
  */
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ApiRequestError, deviceApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const POLL_INTERVAL_MS = 3_000;
+const POLL_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,10 +38,49 @@ interface WifiProvisionResponse {
 // ---------------------------------------------------------------------------
 
 export function WifiProvisionForm() {
+  const { deviceUrl, confirmDeviceUrl } = useAuth();
   const [ssid, setSsid] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState<"idle" | "submitting" | "submitted" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "submitting" | "submitted" | "reconnecting" | "reconnected" | "timeout" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollStart = useRef<number>(0);
+
+  // Start polling the home-network URL once WiFi provisioning is submitted.
+  useEffect(() => {
+    if (status !== "reconnecting") return;
+    if (!deviceUrl) return;
+
+    pollStart.current = Date.now();
+
+    async function probe() {
+      if (Date.now() - pollStart.current > POLL_TIMEOUT_MS) {
+        setStatus("timeout");
+        return;
+      }
+      try {
+        // Probe the health endpoint on the home-network URL.
+        const res = await fetch(`${deviceUrl}/`, {
+          method: "GET",
+          signal: AbortSignal.timeout(3_000),
+        });
+        if (res.ok) {
+          // Device is reachable — persist and activate the home-network URL.
+          await confirmDeviceUrl(deviceUrl);
+          setStatus("reconnected");
+          return;
+        }
+      } catch {
+        // Not yet reachable — keep polling.
+      }
+      pollTimer.current = setTimeout(probe, POLL_INTERVAL_MS);
+    }
+
+    pollTimer.current = setTimeout(probe, POLL_INTERVAL_MS);
+    return () => {
+      if (pollTimer.current !== null) clearTimeout(pollTimer.current);
+    };
+  }, [status, deviceUrl]);
 
   async function handleSubmit() {
     if (!ssid.trim()) return;
@@ -45,7 +93,7 @@ export function WifiProvisionForm() {
         { method: "POST", body: { ssid: ssid.trim(), password } },
       );
       if (data.status === "connecting") {
-        setStatus("submitted");
+        setStatus("reconnecting");
       } else {
         throw new Error("Unexpected response from device");
       }
@@ -62,33 +110,71 @@ export function WifiProvisionForm() {
   }
 
   // ---------------------------------------------------------------------------
-  // Submitted state — show confirmation, hide inputs
+  // Reconnected — device answered on home network
   // ---------------------------------------------------------------------------
 
-  if (status === "submitted") {
+  if (status === "reconnected") {
     return (
       <View style={styles.container}>
-        <Text style={styles.heading}>Step 2 — Configure Home Wi-Fi</Text>
+        <Text style={styles.heading}>Connected \u2713</Text>
         <Text style={styles.successText}>
-          Connecting to <Text style={styles.ssidHighlight}>{ssid}</Text>
-          {"\u2026"} The hotspot will shut down automatically once the device
-          joins your home network.
-        </Text>
-        <Text style={styles.instructionText}>
-          Your device is connecting. Once connected, switch your phone back to
-          your home network.
+          Your device is online on your home network. You can now issue
+          commands from this screen.
         </Text>
       </View>
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Input state
+  // Reconnecting — polling spinner
+  // ---------------------------------------------------------------------------
+
+  if (status === "reconnecting") {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>Waiting for device\u2026</Text>
+        <Text style={styles.description}>
+          Connecting to <Text style={styles.ssidHighlight}>{ssid}</Text>.
+          {" "}The hotspot will shut down once the device joins your home network.
+          Switch your phone back to your home network now.
+        </Text>
+        <Text style={styles.pollNote}>
+          Checking for device automatically every {POLL_INTERVAL_MS / 1000} s\u2026
+        </Text>
+      </View>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Poll timed out
+  // ---------------------------------------------------------------------------
+
+  if (status === "timeout") {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.heading}>Device not found</Text>
+        <Text style={styles.errorText}>
+          Could not reach the device at {deviceUrl} within{" "}
+          {POLL_TIMEOUT_MS / 1000} s. Ensure you are on the same network as
+          the device and try again.
+        </Text>
+        <Pressable
+          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          onPress={() => setStatus("reconnecting")}
+        >
+          <Text style={styles.buttonText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Input state (idle / error)
   // ---------------------------------------------------------------------------
 
   return (
     <View style={styles.container}>
-      <Text style={styles.heading}>Step 2 — Configure Home Wi-Fi</Text>
+      <Text style={styles.heading}>Step 2 \u2014 Configure Home Wi-Fi</Text>
       <Text style={styles.description}>
         Enter your home Wi-Fi credentials. The device will connect in the
         background and the hotspot will turn off automatically.
@@ -158,11 +244,10 @@ const styles = StyleSheet.create({
   ssidHighlight: {
     fontWeight: "600" as const,
   },
-  instructionText: {
-    fontSize: 14,
+  pollNote: {
+    fontSize: 13,
     color: colors.textMuted,
-    textAlign: "center" as const,
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   input: {
     backgroundColor: colors.background,
@@ -198,3 +283,4 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
   },
 });
+

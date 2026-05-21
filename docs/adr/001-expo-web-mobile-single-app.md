@@ -72,7 +72,7 @@ codebase.
 | Auth (login/register) | ✅ | ✅ | ✅ |
 | Fleet dashboard | ✅ | ✅ | ✅ |
 | Landing page | ❌ | ❌ | ✅ |
-| Secure token storage | Keystore | Keychain | localStorage |
+| Secure token storage | Keystore | Keychain | sessionStorage (refresh) / memory (access) |
 | Haptic feedback | ✅ | ✅ | ❌ |
 
 ## Consequences
