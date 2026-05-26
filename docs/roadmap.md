@@ -13,6 +13,8 @@
 | 2 | BLE Integration | ⊘ Superseded by Phase 15 |
 | 2.1 | BLE Simplification | ⊘ Superseded by Phase 15 |
 | 2.2 | BLE Pairing Architecture Corrections | ⊘ Superseded by Phase 15 |
+| 8 | Device Fleet Registration | ✅ Complete |
+| 15 | Soft AP / WiFi Provisioning | ✅ Complete (cross-repo; see nomopractic ADR-005) |
 
 ---
 
@@ -21,10 +23,10 @@
 Phases 1, 2, 2.1, and 2.2 are complete (BLE phases superseded by Phase 15 — Wi-Fi Soft AP). The app has:
 - Expo SDK 54 with expo-router navigation
 - Dark theme, typed API client with auth injection and 401 retry guard
-- JWT auth flow with expo-secure-store (mobile) / localStorage (web)
+- JWT auth flow with expo-secure-store (mobile) / sessionStorage refresh + memory-only access tokens (web)
 - Device control dashboard with 5 expandable card components
 - Web landing page for unauthenticated visitors
-- Wi-Fi Soft AP pairing: HTTP pairing flow (`POST /api/device/auth/pair`) accessible at `192.168.4.1:8443`
+- Wi-Fi Soft AP pairing: HTTP pairing flow (`POST /api/device/auth/pair/ap`) accessible at `http://192.168.4.1:8080` (plain HTTP, nomothetic ADR-015)
 - Connection state indicator with auto-reconnect
 - AI-ready command input bar
 - Guest mode: unauthenticated users can pair via Soft AP without an account
@@ -83,7 +85,8 @@ JWT auth) for auth flow and fleet endpoints.
   - `logout()` → clears tokens
   - `refreshToken()` → calls `POST /api/auth/refresh`, rotates tokens
   - `isAuthenticated: boolean` derived from token presence
-  - Token storage: `expo-secure-store` on mobile, `localStorage` on web
+  - Token storage: `expo-secure-store` on mobile, `sessionStorage` (refresh) /
+    memory-only (access) on web (see ADR-018)
 - [x] `app/login.tsx` — single-screen login / register:
   - Email + password fields
   - Toggle between login and register mode (progressive disclosure)
@@ -545,6 +548,44 @@ See [ADR-003](adr/003-ble-pairing-arch-corrections.md) for design rationale.
 - [x] Active BLE session survives navigation to the device page
 - [x] Paired device appears on the dashboard for both guest and authenticated users
 - [x] `npx expo lint` clean across all modified files
+
+---
+
+### Phase 8 — Device Fleet Registration ✅ Complete
+
+**Goal:** Allow a paired user to register their physical device with the
+central fleet API. The device issues a short-lived registration proof JWT;
+the client relays it to the central API to create the fleet record.
+
+**Cross-repo dependencies:**
+- nomothetic Phase 23 (`GET /api/device/auth/identity`, updated
+  `POST /api/fleet/devices`)
+
+#### Deliverables
+
+- [x] `components/DeviceRegistrationForm.tsx` — central fleet registration
+      form; discovery-driven flow handles three device states:
+      - **direct** — device reachable at the stored URL
+      - **ap** — device currently in Soft AP mode
+      - **needs-pairing** — no stored device URL yet
+- [x] Registration proof flow:
+  1. Call `GET /api/device/auth/identity` (device JWT) → receive `vin`,
+     `model`, `registration_proof`
+  2. Call central `POST /api/fleet/devices` (central JWT) with
+     `{ vin, model, registration_proof }` → device registered to account
+- [x] Web token storage hardened (ADR-018):
+  - Access tokens: memory-only (never written to browser storage)
+  - Refresh tokens: `sessionStorage` (tab-scoped)
+  - Device URL: `localStorage` (non-sensitive)
+
+#### Phase 8 Exit Criteria
+
+- [x] Authenticated user can register a paired device to their central fleet
+      account via `DeviceRegistrationForm`
+- [x] Registration proof flow completes end-to-end
+- [x] Web: access token is not present in `localStorage` or `sessionStorage`
+- [x] `npx expo lint` clean
+- [x] `npx tsc --noEmit` — 0 errors
 
 ---
 

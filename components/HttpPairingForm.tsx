@@ -1,67 +1,97 @@
 /**
- * HTTP pairing form — pairs a device via the central API.
+ * Device pairing form — shown in the local panel when the central API is unavailable.
+ *
+ * mode="direct" — Device reachable at home-network URL but no stored token.
+ *                 Collects secret + display name and calls pairWithDevice.
+ * mode="ap"     — Soft AP detected. Used for initial AP pairing and AP-side
+ *                 re-pairing when this app no longer has a valid device session.
+ *                 Collects display name only and calls pairViaAp.
+ * mode="none"   — Nothing reachable. Shows setup instructions and a Retry button.
  */
 
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ExpandableCard } from "@/components/ExpandableCard";
 import { WifiProvisionForm } from "@/components/WifiProvisionForm";
-import { DEVICE_API_URL } from "@/constants/config";
 import { useAuth } from "@/lib/auth";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 
 interface HttpPairingFormProps {
-  defaultExpanded: boolean;
-  onPaired: () => Promise<void>;
+  mode: "direct" | "ap" | "none";
+  onRetry: () => Promise<void>;
+  onConnected?: () => void;
 }
 
-export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormProps) {
-  const { pairWithDevice } = useAuth();
-  const [pairingSecret, setPairingSecret] = useState("");
+export function HttpPairingForm({ mode, onRetry, onConnected }: HttpPairingFormProps) {
+  const { pairWithDevice, pairViaAp } = useAuth();
+  const [secret, setSecret] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [isPairing, setIsPairing] = useState(false);
   const [showWifi, setShowWifi] = useState(false);
 
-  async function handlePair() {
-    if (!pairingSecret.trim() || !displayName.trim()) return;
+  if (showWifi) {
+    return <WifiProvisionForm />;
+  }
+
+  if (mode === "none") {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.desc}>
+          To set up a new device:{"\n\n"}
+          1. Power on the device.{"\n"}
+          2. Connect to the nomon Wi\u2011Fi hotspot (nomon\u2011XXXX).{"\n"}
+          3. Return here and tap Retry.
+        </Text>
+        <Pressable style={styles.pairButton} onPress={onRetry}>
+          <Text style={styles.pairButtonText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  async function handleConnect() {
+    if (!displayName.trim()) return;
+    if (mode === "direct" && !secret.trim()) return;
     setIsPairing(true);
     setPairingError(null);
     try {
-      await pairWithDevice(pairingSecret.trim(), displayName.trim());
-      setPairingSecret("");
-      setDisplayName("");
-      await onPaired();
-      setShowWifi(true);
-    } catch (err: unknown) {
-      let message = err instanceof Error ? err.message : "Pairing failed";
-      if (message === "Request timed out") {
-        message = `Device not reachable at ${DEVICE_API_URL}. Ensure the nomon is powered on and connected to the network.`;
+      if (mode === "direct") {
+        await pairWithDevice(secret.trim(), displayName.trim());
+        onConnected?.();
+      } else {
+        await pairViaAp(displayName.trim());
+        setShowWifi(true);
       }
-      setPairingError(message);
+      setSecret("");
+      setDisplayName("");
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : "Connection failed";
+      setPairingError(raw);
     } finally {
       setIsPairing(false);
     }
   }
 
   return (
-    <ExpandableCard title="Pair New Device" defaultExpanded={defaultExpanded}>
-      <Text style={styles.pairingDesc}>
-        Enter the server pairing code shown on the device console. This is
-        the nomothetic pairing code used for HTTP registration. Connect to
-        the device&apos;s Wi-Fi hotspot (nomon-&lt;last4&gt;) if you haven&apos;t
-        joined the same network yet.
+    <View style={styles.container}>
+      <Text style={styles.desc}>
+        {mode === "direct"
+          ? "Device found on your network. Enter the pairing secret from the device console to connect."
+          : "Device AP network detected. Enter a name for this device."}
       </Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Pairing secret"
-        placeholderTextColor={colors.textMuted}
-        value={pairingSecret}
-        onChangeText={setPairingSecret}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
+      {mode === "direct" && (
+        <TextInput
+          style={styles.input}
+          placeholder="Pairing secret"
+          placeholderTextColor={colors.textMuted}
+          value={secret}
+          onChangeText={setSecret}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+      )}
       <TextInput
         style={styles.input}
         placeholder="Display name"
@@ -79,22 +109,22 @@ export function HttpPairingForm({ defaultExpanded, onPaired }: HttpPairingFormPr
           pressed && styles.pairButtonPressed,
           isPairing && styles.pairButtonDisabled,
         ]}
-        onPress={handlePair}
+        onPress={handleConnect}
         disabled={isPairing}
       >
         <Text style={styles.pairButtonText}>
-          {isPairing ? "Pairing\u2026" : "Pair"}
+          {isPairing ? "Connecting\u2026" : "Connect"}
         </Text>
       </Pressable>
-      {showWifi && (
-        <WifiProvisionForm />
-      )}
-    </ExpandableCard>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  pairingDesc: {
+  container: {
+    marginTop: spacing.sm,
+  },
+  desc: {
     ...typography.caption,
     marginBottom: spacing.md,
   },

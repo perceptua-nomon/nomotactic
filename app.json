@@ -12,7 +12,16 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "nomon uses Bluetooth to discover, pair with, and control your robot.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSExceptionDomains": {
+            "192.168.4.1": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSIncludesSubdomains": false
+            }
+          }
+        }
       },
       "bundleIdentifier": "app.nomotactic"
     },
@@ -50,7 +59,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "./plugins/apModeTlsPlugin"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -60,7 +60,9 @@ app/
   (app)/
     _layout.tsx       → Auth guard (authenticated or guest) + CommandInput bar at bottom
     index.tsx         → Devices dashboard: fleet + local device list, Soft AP pairing
-    register-device.tsx → Local nomothetic registration after HTTP pairing via Soft AP
+    register-device.tsx → Local nomothetic registration after HTTP pairing via Soft AP;
+                          hosts DeviceRegistrationForm for central fleet registration
+                          (Phase 8 — users with a paired device but no fleet record)
     device/[id].tsx   → Per-device control view with expandable cards
 ```
 
@@ -75,7 +77,7 @@ on fleet discovery and pairing.
 | **Web, unauthenticated** | Landing page (hero, features, CTA to login) |
 | **Web, authenticated** | Fleet dashboard. HTTPS only. |
 | **Mobile, WiFi connected** | Full device control: motors, camera, sensors, settings, calibration. HTTPS transport. |
-| **Mobile, Soft AP connected** | Basic pairing flow: user connects to `nomon-<last4-of-MAC>` AP, enters pairing secret at `https://192.168.4.1:8443`, receives JWT. After pairing, nomotactic switches to HTTPS for full feature set. |
+| **Mobile, Soft AP connected** | Basic pairing flow: user connects to `nomon-<last4-of-MAC>` AP, enters pairing secret at `http://192.168.4.1:8080` (plain HTTP, interface-scoped to AP gateway), receives JWT. After pairing, nomotactic switches to HTTPS for full feature set. |
 | **Mobile, guest (no account)** | Login skipped via "Continue without account". Soft AP pairing available. Dashboard shows locally-paired devices only; central fleet unavailable. |
 
 Platform detection uses `Platform.OS` from React Native. Feature visibility
@@ -94,7 +96,8 @@ is conditional, not page-based.
       ▼
 ┌────────────────────────┐
 │  expo-secure-store     │  (mobile: OS keychain)
-│  localStorage          │  (web: browser storage)
+│  sessionStorage        │  (web: refresh tokens — tab-scoped)
+│  memory only           │  (web: access tokens — never persisted)
 └────────────────────────┘
       │                        ┌────────────────┐
       │  Authorization: Bearer │  nomothetic    │
@@ -108,7 +111,9 @@ is conditional, not page-based.
 - API client injects `Authorization: Bearer <token>` on every request
 - On 401 response, client attempts automatic refresh via `/api/auth/refresh`
 - If refresh fails, user is redirected to login
-- `expo-secure-store` on mobile (OS keychain); `localStorage` on web
+- `expo-secure-store` on mobile (OS keychain); three-tier storage on web:
+  access tokens memory-only, refresh tokens in `sessionStorage`, device URL
+  in `localStorage` (see ADR-018)
 
 ### Guest Mode
 
@@ -163,10 +168,12 @@ the nomothetic startup log.
 
 1. User connects their device to the `nomon-<last4-of-MAC>` Wi-Fi network.
 2. nomotactic detects the Soft AP network and surfaces the pairing form at
-   `https://192.168.4.1:8443`.
+   `http://192.168.4.1:8080`.
 3. User enters the pairing secret (`POST /api/device/auth/pair`).
 4. nomothetic returns a device-scoped JWT (`iss=nomon-device`).
-5. nomotactic stores the JWT in `expo-secure-store` (mobile) / `localStorage` (web).
+5. nomotactic stores the device refresh token in `sessionStorage` (web) or
+   `expo-secure-store` (mobile); the access token is held in memory only and
+   is never written to browser storage.
 6. After pairing, the user connects back to their home network; all subsequent
    device API calls use the stored JWT over HTTPS.
 
@@ -174,7 +181,7 @@ the nomothetic startup log.
 User phone                      nomon Pi
 ──────────                      ─────────
 Join nomon-<last4> AP      ──▶  192.168.4.1 (Soft AP)
-GET https://192.168.4.1:8443   ──▶  nomothetic HTTPS
+GET http://192.168.4.1:8080    ──▶  nomothetic HTTP (AP only)
 POST /api/device/auth/pair     ──▶  verify pairing secret
                                ◀──  { access_token, refresh_token }
 Store JWT in secure storage
@@ -202,9 +209,9 @@ interface LocalDevice {
 }
 ```
 
-Storage: JSON-encoded array at key `nomon_local_devices`, using the same
-cross-platform storage pattern as auth tokens (`expo-secure-store` on mobile,
-`localStorage` on web).
+Storage: JSON-encoded array at key `nomon_local_devices`, using `localStorage`
+on web (non-sensitive device metadata, not credentials) and `expo-secure-store`
+on mobile.
 
 `useDevices` loads both central and local device lists in parallel and merges
 them. Deduplication: if a local device's `vin` matches a central fleet device,
@@ -252,8 +259,11 @@ nomothetic API.
 ## Security
 
 - Tokens stored in OS keychain on mobile (`expo-secure-store`)
-- Web uses `localStorage` — acceptable for development; flag for production
-  security review (consider `httpOnly` cookies if SSR is added)
+- Web uses a three-tier storage model (ADR-018): access tokens are
+  **memory-only** (never written to browser storage); refresh tokens use
+  **`sessionStorage`** (tab-scoped, cleared on tab close); device URL in
+  `localStorage` (non-sensitive). This resolves the prior `localStorage`
+  XSS exposure concern.
 - No secrets in source — API URLs from environment/config
 - HTTPS enforced for all API communication
 - Self-signed cert acceptance documented for device-mode connections
