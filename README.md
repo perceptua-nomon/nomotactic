@@ -28,6 +28,28 @@ npx expo start --ios
 npx expo start --web
 ```
 
+## Running in Expo Go over Tailscale
+
+The dev machine and test device must be on the same [Tailnet](https://tailscale.com/kb/1136/tailnet).
+No ngrok tunnel is required or recommended.
+
+```bash
+make start-tailnet
+# or:
+npm run tailnet
+```
+
+This sets `REACT_NATIVE_PACKAGER_HOSTNAME` to `$(tailscale ip -4)` so Metro advertises the
+Tailscale IP instead of the WSL2/LAN IP. The QR code in Expo Go will point directly to the
+dev machine over the Tailnet.
+
+**Prerequisites:**
+- `tailscale` CLI must be installed and connected on the dev machine (`tailscale ip -4` must return a valid IP)
+- The test device must be enrolled in the same Tailnet and have Tailscale active
+
+`npm run start` (plain LAN mode) works when both devices share the same physical LAN segment.
+Use `tailnet` when the dev machine is behind WSL2, a different subnet, or a VPN-only network.
+
 ## Project Structure
 
 ```
