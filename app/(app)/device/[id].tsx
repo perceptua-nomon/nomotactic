@@ -13,6 +13,7 @@ import React, { useCallback, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ControlPad } from "@/components/ControlPad";
+import { PanTiltPad } from "@/components/PanTiltPad";
 import { SensorBar } from "@/components/SensorBar";
 import { VideoFeed } from "@/components/VideoFeed";
 import { useAuth } from "@/lib/auth";
@@ -201,10 +202,14 @@ export default function DeviceCockpitScreen() {
       </View>
 
       {/*
+        PanTiltPad:
+        - Mobile: renders as position:absolute overlay (bottom-left, above action strip)
+        - Web: renders inline keyboard-hint label at the bottom
         ControlPad:
         - Mobile: renders as position:absolute overlay (bottom-right, above action strip)
         - Web: renders inline keyboard-hint label at the bottom
       */}
+      <PanTiltPad />
       <ControlPad />
     </View>
   );

@@ -224,6 +224,8 @@ export interface DeviceIdentity {
   vin: string;
   model: string;
   hostname: string;
+  /** Nomothetic package version, reported as device firmware version. */
+  firmware_version: string;
   /** Short-lived proof JWT to submit alongside the VIN when registering with
    *  the central fleet API. Valid for 5 minutes. */
   registration_proof: string;

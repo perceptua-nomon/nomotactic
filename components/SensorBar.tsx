@@ -28,7 +28,7 @@ interface BatteryBleResponse {
 }
 
 interface UltrasonicHttpResponse {
-  distance_cm: number;
+  distance_cm: number | null;
   timestamp: string;
 }
 
@@ -51,17 +51,22 @@ export function SensorBar() {
   const sendCommand = useDeviceCommand();
 
   const poll = useCallback(async () => {
-    try {
-      const [batt, ultra, gray] = await Promise.all([
-        sendCommand<BatteryBleResponse | BatteryHttpResponse>(ENDPOINTS.BATTERY),
-        sendCommand<UltrasonicBleResponse | UltrasonicHttpResponse>(ENDPOINTS.ULTRASONIC),
-        sendCommand<GrayscaleResponse>(ENDPOINTS.GRAYSCALE),
-      ]);
+    const [battResult, ultraResult, grayResult] = await Promise.allSettled([
+      sendCommand<BatteryBleResponse | BatteryHttpResponse>(ENDPOINTS.BATTERY),
+      sendCommand<UltrasonicBleResponse | UltrasonicHttpResponse>(ENDPOINTS.ULTRASONIC),
+      sendCommand<GrayscaleResponse>(ENDPOINTS.GRAYSCALE),
+    ]);
+    // Each sensor updates independently — a failure on one does not block the others.
+    if (battResult.status === "fulfilled") {
+      const batt = battResult.value;
       setVoltage("voltageV" in batt ? batt.voltageV : batt.voltage_v);
+    }
+    if (ultraResult.status === "fulfilled") {
+      const ultra = ultraResult.value;
       setDistance("distanceCm" in ultra ? ultra.distanceCm : ultra.distance_cm);
-      setGrayscaleValues(gray.values);
-    } catch {
-      // Keep previous values on error; "—" will show if never successfully loaded
+    }
+    if (grayResult.status === "fulfilled") {
+      setGrayscaleValues(grayResult.value.values);
     }
   }, [sendCommand]);
 

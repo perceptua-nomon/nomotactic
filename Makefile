@@ -1,18 +1,25 @@
-.PHONY: install start android ios web lint test type-check check clean help
+.PHONY: install gen-env start android ios web lint test type-check check clean help
 
 install:
 	npm install
 
-start:
+gen-env:
+	@if [ ! -f .env.device ]; then echo "Error: .env.device not found (copy from .env.device.example: cp .env.device.example .env.device)"; exit 1; fi
+	@if [ ! -f .env.central ]; then echo "Error: .env.central not found (copy from .env.central.example: cp .env.central.example .env.central)"; exit 1; fi
+	@cat .env.device > .env
+	@echo "" >> .env
+	@cat .env.central >> .env
+
+start: gen-env
 	npx expo start
 
-android:
+android: gen-env
 	npx expo start --android
 
-ios:
+ios: gen-env
 	npx expo start --ios
 
-web:
+web: gen-env
 	npx expo start --web
 
 lint:
@@ -32,10 +39,11 @@ clean:
 help:
 	@echo "Available targets:"
 	@echo "  install    - Install npm dependencies"
-	@echo "  start      - Start Expo dev server"
-	@echo "  android    - Start Expo dev server targeting Android"
-	@echo "  ios        - Start Expo dev server targeting iOS"
-	@echo "  web        - Start Expo dev server targeting web"
+	@echo "  gen-env    - Merge .env.device + .env.central into .env"
+	@echo "  start      - Start Expo dev server (runs gen-env first)"
+	@echo "  android    - Start Expo dev server targeting Android (runs gen-env first)"
+	@echo "  ios        - Start Expo dev server targeting iOS (runs gen-env first)"
+	@echo "  web        - Start Expo dev server targeting web (runs gen-env first)"
 	@echo "  lint       - Run Expo lint"
 	@echo "  test       - Run Jest tests"
 	@echo "  type-check - Run TypeScript type checker"

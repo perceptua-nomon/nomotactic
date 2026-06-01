@@ -5,10 +5,12 @@
  * omitted it sends a GET.
  */
 
+import { useCallback } from "react";
+
 import { deviceApi } from "@/lib/api";
 
 export function useDeviceCommand() {
-  return async function sendDeviceCommand<T>(
+  return useCallback(async function sendDeviceCommand<T>(
     endpoint: string,
     body?: Record<string, unknown>,
   ): Promise<T> {
@@ -16,5 +18,5 @@ export function useDeviceCommand() {
       return deviceApi<T>(endpoint, { method: "POST", body });
     }
     return deviceApi<T>(endpoint);
-  };
+  }, []);
 }

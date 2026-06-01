@@ -25,10 +25,12 @@ import { WifiProvisionForm } from "@/components/WifiProvisionForm";
 import { useAuth } from "@/lib/auth";
 import { type Device, useDevices } from "@/lib/devices";
 import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { useTransport } from "@/lib/transport";
 
 export default function DashboardScreen() {
   const { centralDevices, localDiscovery, directDevice, centralAvailable, isLoading, error, refresh } = useDevices();
   const { isAuthenticated, isDevicePaired } = useAuth();
+  const { mode } = useTransport();
   const router = useRouter();
 
   // The registered panel is disabled when the user is not logged in or the
@@ -38,6 +40,13 @@ export default function DashboardScreen() {
 
   function renderDeviceCard(device: Device) {
     const unpaired = !isDevicePaired;
+    // Status reflects session connection state — fleet DB doesn't track live
+    // device presence, so we use the transport mode as the honest signal.
+    const dotColor = unpaired
+      ? colors.warning
+      : mode === "https"
+      ? colors.secondary
+      : colors.textMuted;
     return (
       <Pressable
         key={device.id}
@@ -46,26 +55,7 @@ export default function DashboardScreen() {
       >
         <View style={styles.deviceHeader}>
           <Text style={[styles.deviceName, unpaired && styles.deviceNameUnpaired]}>{device.name}</Text>
-          <View
-            style={[
-              styles.statusDot,
-              {
-                backgroundColor: unpaired
-                  ? colors.warning
-                  : device.isOnline
-                  ? colors.secondary
-                  : colors.textMuted,
-              },
-            ]}
-          />
-        </View>
-        <View style={styles.deviceDetails}>
-          <Text style={styles.deviceDetail}>
-            Battery: {device.batteryVoltage !== null ? `${device.batteryVoltage}V` : "—"}
-          </Text>
-          <Text style={styles.deviceDetail}>
-            Firmware: {device.firmwareVersion ?? "—"}
-          </Text>
+          <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
         </View>
         {unpaired && (
           <Text style={styles.deviceUnpairedHint}>
@@ -307,7 +297,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.xs,
   },
   deviceName: {
     ...typography.body,
@@ -325,12 +314,5 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-  },
-  deviceDetails: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  deviceDetail: {
-    ...typography.caption,
   },
 });
