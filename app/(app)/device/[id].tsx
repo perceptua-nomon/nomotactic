@@ -4,12 +4,11 @@
  * Replaces the expandable-card layout with:
  *   • Persistent sensor bar (auto-polling battery / ultrasonic / grayscale)
  *   • Live video feed with inline toggle
- *   • Inline routine controls (explore start/stop + live status polling)
  *   • ControlPad: keyboard on web, absolute D-pad overlay on mobile
  */
 
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ControlPad } from "@/components/ControlPad";
@@ -18,22 +17,8 @@ import { SensorBar } from "@/components/SensorBar";
 import { VideoFeed } from "@/components/VideoFeed";
 import { useAuth } from "@/lib/auth";
 import { useDevices } from "@/lib/devices";
-import { ENDPOINTS } from "@/lib/endpoints";
-import { borderRadius, colors, spacing, typography } from "@/lib/theme";
+import { colors, spacing, typography } from "@/lib/theme";
 import { useTransport } from "@/lib/transport";
-import { useDeviceCommand } from "@/lib/useDeviceCommand";
-import { usePolling } from "@/lib/usePolling";
-
-// ── Routine status shape (mirrors RoutineCard) ────────────────────────────────
-
-interface RoutineStatus {
-  running: boolean;
-  name: string | null;
-  elapsed_s: number | null;
-  obstacles_avoided: number | null;
-  cliffs_avoided: number | null;
-  timestamp: string;
-}
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -43,11 +28,8 @@ export default function DeviceCockpitScreen() {
   const { centralDevices, directDevice } = useDevices();
   const { unpairDevice, isDevicePaired } = useAuth();
   const { mode } = useTransport();
-  const sendCommand = useDeviceCommand();
 
   const [isReconnecting, setIsReconnecting] = useState(false);
-  const [routineRunning, setRoutineRunning] = useState(false);
-  const [routineError, setRoutineError] = useState<string | null>(null);
 
   const device =
     centralDevices.find((d) => d.id === id) ??
@@ -66,35 +48,6 @@ export default function DeviceCockpitScreen() {
       setIsReconnecting(false);
     }
     router.replace("/(app)");
-  }
-
-  // ── Routine polling ────────────────────────────────────────────────────────
-
-  const pollRoutine = useCallback(async () => {
-    try {
-      const data = await sendCommand<RoutineStatus>(ENDPOINTS.ROUTINE_STATUS);
-      setRoutineRunning(data.running);
-      setRoutineError(null);
-    } catch (err) {
-      setRoutineError((err as Error).message);
-    }
-  }, [sendCommand]);
-
-  usePolling(pollRoutine, 3_000);
-
-  async function toggleRoutine() {
-    setRoutineError(null);
-    try {
-      if (routineRunning) {
-        await sendCommand(ENDPOINTS.ROUTINE_STOP, {});
-        setRoutineRunning(false);
-      } else {
-        await sendCommand(ENDPOINTS.ROUTINE_START, { name: "explore" });
-        setRoutineRunning(true);
-      }
-    } catch (err) {
-      setRoutineError((err as Error).message);
-    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -178,35 +131,12 @@ export default function DeviceCockpitScreen() {
         <VideoFeed />
       </View>
 
-      {/* ── Bottom action strip ── */}
-      <View style={styles.actionStrip}>
-        <Pressable
-          style={[
-            styles.actionButton,
-            routineRunning ? styles.actionButtonStop : styles.actionButtonStart,
-            !isDevicePaired && styles.actionButtonDisabled,
-          ]}
-          onPress={toggleRoutine}
-          disabled={!isDevicePaired}
-        >
-          <Text style={styles.actionButtonText}>
-            {routineRunning ? "■ Stop" : "⚙ Explore"}
-          </Text>
-        </Pressable>
-
-        {routineError !== null && (
-          <Text style={styles.routineError} numberOfLines={1}>
-            {routineError}
-          </Text>
-        )}
-      </View>
-
       {/*
         PanTiltPad:
-        - Mobile: renders as position:absolute overlay (bottom-left, above action strip)
+        - Mobile: renders as position:absolute overlay (bottom-left)
         - Web: renders inline keyboard-hint label at the bottom
         ControlPad:
-        - Mobile: renders as position:absolute overlay (bottom-right, above action strip)
+        - Mobile: renders as position:absolute overlay (bottom-right)
         - Web: renders inline keyboard-hint label at the bottom
       */}
       <PanTiltPad />
@@ -303,40 +233,5 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
 
-  // ── Bottom action strip ──
-  actionStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    gap: spacing.sm,
-  },
-  actionButton: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.sm,
-    alignItems: "center",
-  },
-  actionButtonStart: {
-    backgroundColor: colors.primary,
-  },
-  actionButtonStop: {
-    backgroundColor: colors.error,
-  },
-  actionButtonDisabled: {
-    opacity: 0.4,
-  },
-  actionButtonText: {
-    color: colors.background,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  routineError: {
-    flex: 1,
-    ...typography.caption,
-    color: colors.error,
-  },
 });
 
