@@ -2,7 +2,7 @@
   "expo": {
     "name": "nomotactic",
     "slug": "nomotactic",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nomotactic",
@@ -11,7 +11,6 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "nomon uses Bluetooth to discover, pair with, and control your robot.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
@@ -33,14 +32,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN"
-      ]
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -60,7 +52,9 @@
           }
         }
       ],
-      "./plugins/apModeTlsPlugin"
+      "./plugins/apModeTlsPlugin",
+      "expo-font",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

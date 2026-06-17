@@ -116,7 +116,7 @@ JWT auth) for auth flow and fleet endpoints.
       connection indicator. Auto-refreshes every 5 s.
 - [x] `components/MotorCard.tsx` — directional pad (forward / backward / left /
       right / stop), speed slider (0–100%). Sends `POST /api/drive` and
-      `POST /api/steer`. Hidden on web (no BLE fallback).
+      `POST /api/steer`. Hidden on web (HTTPS-only; no mobile-only transport).
 - [x] `components/CameraCard.tsx` — capture still button, link to MJPEG stream
       URL. Shows last-captured image inline.
 - [x] `components/SensorCard.tsx` — ultrasonic distance, grayscale readings
@@ -152,7 +152,7 @@ JWT auth) for auth flow and fleet endpoints.
 - ✅ Mobile skips landing page (goes directly to login or dashboard)
 - ✅ `npx expo lint` clean
 
-### 1.5 — BLE Abstraction Stubs
+### 1.5 — BLE Abstraction Stubs ⊘ Superseded by Phase 15
 
 **Goal:** Define the Bluetooth Low Energy service interface for future
 implementation.
@@ -206,7 +206,7 @@ implementation.
 
 ## Future
 
-### Phase 2 — BLE Integration ✅ Complete
+### Phase 2 — BLE Integration ⊘ Superseded by Phase 15
 
 **Goal:** Implement real BLE connectivity for device discovery, pairing,
 and basic control commands. BLE is the primary transport on mobile when WiFi
@@ -359,7 +359,7 @@ limitation documented in architecture.md.
 
 ---
 
-### Phase 2.1 — BLE Simplification ✅ Complete
+### Phase 2.1 — BLE Simplification ⊘ Superseded by Phase 15
 
 **Goal:** Replace the custom BLE binary protocol, AES-128-CCM encryption,
 and application-layer pairing ceremony with OS-level Bluetooth passkey
@@ -461,7 +461,7 @@ the HTTPS API client, making every IPC method automatically available.
 - [x] `npx expo lint` clean
 - [x] No third-party UI component libraries added
 
-### Phase 2.2 — BLE Pairing Architecture Corrections ✅ Complete
+### Phase 2.2 — BLE Pairing Architecture Corrections ⊘ Superseded by Phase 15
 
 **Goal:** Fix three bugs in the BLE pairing flow that prevent the intended
 unauthenticated pairing path from working end-to-end.

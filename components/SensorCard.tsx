@@ -13,7 +13,7 @@ import { borderRadius, colors, spacing, typography } from "@/lib/theme";
 import { useDeviceCommand } from "@/lib/useDeviceCommand";
 
 interface UltrasonicData {
-  distance_cm: number;
+  distance_cm: number | null;
   timestamp: string;
 }
 
@@ -35,19 +35,23 @@ export function SensorCard() {
 
   async function refresh() {
     setError(null);
-    try {
-      const [ultra, gray] = await Promise.all([
-        sendCommand<BleUltrasonicData | UltrasonicData>(ENDPOINTS.ULTRASONIC),
-        sendCommand<GrayscaleData>(ENDPOINTS.GRAYSCALE),
-      ]);
-      if ("distanceCm" in ultra) {
-        setDistance(ultra.distanceCm);
-      } else {
-        setDistance(ultra.distance_cm);
-      }
-      setGrayscale(gray);
-    } catch (err) {
-      setError((err as Error).message);
+    const [ultraResult, grayResult] = await Promise.allSettled([
+      sendCommand<BleUltrasonicData | UltrasonicData>(ENDPOINTS.ULTRASONIC),
+      sendCommand<GrayscaleData>(ENDPOINTS.GRAYSCALE),
+    ]);
+    // Each sensor updates independently — a failure on one does not block the other.
+    if (ultraResult.status === "fulfilled") {
+      const ultra = ultraResult.value;
+      setDistance("distanceCm" in ultra ? ultra.distanceCm : ultra.distance_cm);
+    }
+    if (grayResult.status === "fulfilled") {
+      setGrayscale(grayResult.value);
+    }
+    const errors = ([ultraResult, grayResult] as PromiseSettledResult<unknown>[])
+      .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+      .map((r) => (r.reason as Error).message);
+    if (errors.length > 0) {
+      setError(errors.join("; "));
     }
   }
 
