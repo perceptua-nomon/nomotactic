@@ -13,6 +13,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { ControlPad } from "@/components/ControlPad";
 import { PanTiltPad } from "@/components/PanTiltPad";
+import { RoutineControl } from "@/components/RoutineControl";
 import { SensorBar } from "@/components/SensorBar";
 import { VideoFeed } from "@/components/VideoFeed";
 import { useAuth } from "@/lib/auth";
@@ -122,6 +123,9 @@ export default function DeviceCockpitScreen() {
 
       {/* ── Sensor bar (always visible) ── */}
       <SensorBar />
+
+      {/* ── Routine control (start/stop autonomy routines) ── */}
+      <RoutineControl disabled={!isDevicePaired} />
 
       {/* ── Video feed (fills remaining space) ── */}
       <View

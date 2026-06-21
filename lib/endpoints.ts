@@ -16,4 +16,9 @@ export const ENDPOINTS = {
   STREAM_STOP: "/api/stream/stop",
   ULTRASONIC: "/api/sensor/ultrasonic",
   GRAYSCALE: "/api/sensor/grayscale",
+  ROUTINE_AVAILABLE: "/api/routines/available",
+  ROUTINE_START: "/api/routines/start",
+  ROUTINE_HEARTBEAT: "/api/routines/heartbeat",
+  ROUTINE_STOP: "/api/routines/stop",
+  ROUTINE_STOP_ALL: "/api/routines/stop-all",
 } as const;
