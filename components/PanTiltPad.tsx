@@ -22,7 +22,7 @@ import { useDeviceCommand } from "@/lib/useDeviceCommand";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const REPEAT_INTERVAL_MS = 150;
-const BUTTON_SIZE = 40;
+const BUTTON_SIZE = 34;
 /** Step size in degrees for each incremental pan/tilt press. */
 const STEP_DEG = 5;
 /** Minimum/maximum allowed angles (90 = centre). */
@@ -39,7 +39,14 @@ export function PanTiltPad() {
 
   const sendPan = useCallback(
     (angleDeg: number) =>
-      sendCommand(ENDPOINTS.CAMERA_PAN, { angle_deg: angleDeg, ttl_ms: 500 }).catch(() => {}),
+      // The camera pan servo is mounted mirrored vs the app's angle convention
+      // (logical 45 = pan left), so reflect about centre before sending — without
+      // this, ◀ / A panned the camera right. Magnitude is preserved, so the
+      // rate-limiter and clamps in guardedSendPan still operate on logical angles.
+      sendCommand(ENDPOINTS.CAMERA_PAN, {
+        angle_deg: 2 * CENTER_DEG - angleDeg,
+        ttl_ms: 500,
+      }).catch(() => {}),
     [sendCommand],
   );
   const sendTilt = useCallback(
@@ -285,13 +292,13 @@ const styles = StyleSheet.create({
   },
   padContainer: {
     position: "absolute",
-    bottom: 80,
-    left: 16,
+    bottom: 24,
+    left: 12,
   },
   padCircle: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: "rgba(22, 27, 34, 0.9)",
     alignItems: "center",
     justifyContent: "center",
@@ -307,7 +314,7 @@ const styles = StyleSheet.create({
   dpadBtn: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
-    borderRadius: 20,
+    borderRadius: 17,
     backgroundColor: colors.surfaceElevated,
     alignItems: "center",
     justifyContent: "center",

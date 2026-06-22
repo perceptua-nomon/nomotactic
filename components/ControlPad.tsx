@@ -29,7 +29,7 @@ export interface ControlPadProps {
 const REPEAT_INTERVAL_MS = 100;
 /** Slower repeat for steer — gives the servo time to settle between commands. */
 const STEER_REPEAT_INTERVAL_MS = 150;
-const BUTTON_SIZE = 40;
+const BUTTON_SIZE = 34;
 /** Step size in degrees for each incremental steer press. */
 const STEER_STEP_DEG = 5;
 /** Minimum/maximum allowed steer angles (45 = hard left, 135 = hard right, 90 = straight). */
@@ -338,13 +338,13 @@ const styles = StyleSheet.create({
   // Absolute overlay for mobile — positions over the content area
   padContainer: {
     position: "absolute",
-    bottom: 80,
-    right: 16,
+    bottom: 24,
+    right: 12,
   },
   padCircle: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: "rgba(22, 27, 34, 0.9)",
     alignItems: "center",
     justifyContent: "center",
@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
   dpadBtn: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
-    borderRadius: 20,
+    borderRadius: 17,
     backgroundColor: colors.surfaceElevated,
     alignItems: "center",
     justifyContent: "center",
