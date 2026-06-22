@@ -52,7 +52,7 @@ export function RoutineControl({ disabled = false }: RoutineControlProps) {
   const start = useCallback(async (routine: string) => {
     dispatch({ type: "start_pending" });
     try {
-      const run = await startRoutineExclusive(routine);
+      const run = await startRoutineExclusive(routine, {}, { heartbeatTimeoutS: 45 });
       dispatch({ type: "start_ok", routine: run.routine });
     } catch (err) {
       dispatch({
