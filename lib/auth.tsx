@@ -11,6 +11,7 @@ import { Platform } from "react-native";
 
 import { DEVICE_API_URL, SOFT_AP_URL } from "@/constants/config";
 import { centralApi, deleteDeviceSession, deviceApi, getDeviceBaseUrl, setDeviceAccessToken, setDeviceBaseUrl, setDeviceTokenAccessors, setTokenAccessors } from "@/lib/api";
+import { changePassword as apiChangePassword, updateProfile as apiUpdateProfile } from "@/lib/profile";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +48,8 @@ interface AuthContextValue extends AuthState {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
+  updateDisplayName: (displayName: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshAccessToken: () => Promise<boolean>;
   connectToAp: () => Promise<void>;
@@ -294,6 +297,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setState((prev) => ({ ...prev, user: resp.user }));
   }, []);
 
+  const updateDisplayName = useCallback(async (displayName: string): Promise<void> => {
+    const profile = await apiUpdateProfile(displayName);
+    setState((prev) => ({
+      ...prev,
+      user: {
+        email: profile.email,
+        display_name: profile.display_name,
+        created_at: profile.created_at,
+        last_login_at: profile.last_login_at,
+      },
+    }));
+  }, []);
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string): Promise<void> => {
+      await apiChangePassword(currentPassword, newPassword);
+    },
+    [],
+  );
+
   const logout = useCallback(async (): Promise<void> => {
     // Best-effort server-side token revocation
     if (state.refreshToken) {
@@ -476,6 +499,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: state.accessToken !== null,
       login,
       register,
+      updateDisplayName,
+      changePassword,
       logout,
       refreshAccessToken,
       connectToAp,
@@ -486,7 +511,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       continueAsGuest,
       confirmDeviceUrl,
     }),
-    [state, login, register, logout, refreshAccessToken, connectToAp, pairWithDevice, pairViaAp, unpairDevice, refreshDeviceToken, continueAsGuest, confirmDeviceUrl],
+    [state, login, register, updateDisplayName, changePassword, logout, refreshAccessToken, connectToAp, pairWithDevice, pairViaAp, unpairDevice, refreshDeviceToken, continueAsGuest, confirmDeviceUrl],
   );
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

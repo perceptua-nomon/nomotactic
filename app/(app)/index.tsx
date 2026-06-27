@@ -47,17 +47,28 @@ export default function DashboardScreen() {
       : mode === "https"
       ? colors.secondary
       : colors.textMuted;
+    // Registered (central) devices open the fleet management detail (central
+    // data — no pairing required). Local devices open the live cockpit.
+    const onPress =
+      device.source === "central"
+        ? () => router.push(`/(app)/fleet/${device.id}`)
+        : unpaired
+        ? undefined
+        : () => router.push(`/(app)/device/${device.id}`);
     return (
       <Pressable
         key={device.id}
-        style={[styles.deviceCard, unpaired && styles.deviceCardUnpaired]}
-        onPress={unpaired ? undefined : () => router.push(`/(app)/device/${device.id}`)}
+        style={[styles.deviceCard, unpaired && device.source !== "central" && styles.deviceCardUnpaired]}
+        onPress={onPress}
       >
         <View style={styles.deviceHeader}>
-          <Text style={[styles.deviceName, unpaired && styles.deviceNameUnpaired]}>{device.name}</Text>
+          <Text style={styles.deviceName}>{device.name}</Text>
           <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
         </View>
-        {unpaired && (
+        {device.source === "central" && (
+          <Text style={styles.deviceManageHint}>Tap to manage · view telemetry</Text>
+        )}
+        {unpaired && device.source !== "central" && (
           <Text style={styles.deviceUnpairedHint}>
             Not connected — use the Connect section below to reconnect.
           </Text>
@@ -65,6 +76,8 @@ export default function DashboardScreen() {
       </Pressable>
     );
   }
+
+  const onlineCount = centralDevices.filter((d) => d.isOnline).length;
 
   return (
     <ScrollView
@@ -128,6 +141,10 @@ export default function DashboardScreen() {
           )
         ) : (
           <>
+            <Text style={styles.summaryText}>
+              {centralDevices.length} device{centralDevices.length === 1 ? "" : "s"} ·{" "}
+              {onlineCount} online
+            </Text>
             {centralDevices.map(renderDeviceCard)}
             {!isDevicePaired && (
               <View style={styles.connectSection}>
@@ -302,8 +319,15 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: "600",
   },
-  deviceNameUnpaired: {
+  deviceManageHint: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
+  summaryText: {
+    ...typography.caption,
     color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
   deviceUnpairedHint: {
     ...typography.caption,

@@ -41,9 +41,14 @@ export default function AppLayout() {
               <Text style={styles.logoutText}>Sign In</Text>
             </Pressable>
           ) : (
-            <Pressable onPress={logout}>
-              <Text style={styles.logoutText}>Logout</Text>
-            </Pressable>
+            <View style={styles.navActions}>
+              <Pressable onPress={() => router.push("/(app)/profile")}>
+                <Text style={styles.navLink}>Profile</Text>
+              </Pressable>
+              <Pressable onPress={logout}>
+                <Text style={styles.logoutText}>Logout</Text>
+              </Pressable>
+            </View>
           )}
         </View>
       )}
@@ -75,6 +80,14 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: colors.textSecondary,
+  },
+  navActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  navLink: {
+    color: colors.primary,
   },
   content: {
     flex: 1,

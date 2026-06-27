@@ -15,6 +15,7 @@
 | 2.2 | BLE Pairing Architecture Corrections | ⊘ Superseded by Phase 15 |
 | 8 | Device Fleet Registration | ✅ Complete |
 | 15 | Soft AP / WiFi Provisioning | ✅ Complete (cross-repo; see nomopractic ADR-005) |
+| 4 | Fleet Management Dashboard | ✅ Complete (cross-repo; see nomothetic Phase 25) |
 
 ---
 
@@ -596,9 +597,43 @@ the client relays it to the central API to create the fleet record.
 - Context-aware command suggestions
 - Voice input option (tap-to-speak)
 
-### Phase 4 — Fleet Management Dashboard (Planned)
+### Phase 4 — Fleet Management Dashboard ✅ Complete
 
-- Multi-device view (list all owned devices, status overview)
-- Telemetry history charts
-- Device settings and calibration (remote via central API)
-- User profile management
+Cross-repo phase (paired with nomothetic Phase 25: telemetry persistence/history
+API + profile-edit endpoints). The fleet list already existed via
+`useDevices()`; this phase added the operator views on top of it.
+
+**Delivered:**
+- **Fleet overview** — aggregate status header (`N devices · M online`) on the
+  dashboard (`app/(app)/index.tsx`); registered (central) device cards now open a
+  management detail rather than only the live cockpit.
+- **Management detail** (`app/(app)/fleet/[vin].tsx`) — central-data view: device
+  metadata + latest telemetry (`GET /api/fleet/devices/{vin}`), telemetry history
+  chart, "Open controls" (cockpit) and "Calibrate device" links, and
+  "Remove from fleet" (`DELETE`). New `lib/fleet.ts` helpers.
+- **Telemetry history charts** — `components/TelemetryChart.tsx`, a line/area
+  chart over **`react-native-svg`** (battery / CPU temp / uptime, selectable),
+  fed by `GET /api/fleet/devices/{vin}/telemetry`.
+- **Device calibration UI** (device-mode) — `components/CalibrationCard.tsx` +
+  `app/(app)/calibrate.tsx` + `lib/calibration.ts`: motor speed-scale/deadband/
+  reversed, servo trim, grayscale white/black capture with a live normalized
+  readout, and Save/Reset. Talks to the device API directly (deviceApi),
+  reachable over Tailscale/AP; degrades gracefully when the device is unreachable.
+- **Profile management** — `app/(app)/profile.tsx` + `lib/profile.ts`: view
+  email/joined/last-login, edit display name (`PATCH /api/auth/me`), change
+  password (`POST /api/auth/change-password`), and log out. A "Profile" entry was
+  added to the top bar; the auth context gained `updateDisplayName` /
+  `changePassword`.
+- Tests: `tests/lib/fleet.test.ts`, `tests/lib/calibration.test.ts`,
+  `tests/lib/profile.test.ts` (fetch-mocked, mirroring `tests/lib/api.test.ts`).
+
+**Dependency note:** `react-native-svg` is the one new runtime dependency — a
+drawing primitive, not a UI component kit, so it is a deliberate, documented
+exception to the "no third-party UI libraries" rule (architecture.md). All other
+UI stays on core React Native primitives.
+
+**Backend dependency (nomothetic Phase 25):** telemetry was MQTT-only with no
+REST history and `latest_telemetry` always `null`, and there were no profile-edit
+endpoints. That phase added a central MQTT consumer + telemetry store/history API
+(consuming the existing nomographic `TelemetryReading`/`ReadFrom` schema) and the
+`PATCH /api/auth/me` + `POST /api/auth/change-password` endpoints.
