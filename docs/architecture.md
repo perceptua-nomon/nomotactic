@@ -242,8 +242,11 @@ layout (see [ADR-002](adr/002-ai-ready-ux.md)):
 - `react-native-screens` (native navigation)
 - `react-native-gesture-handler` (gesture support)
 
-**No additional UI libraries.** All components built with core RN primitives
-(`View`, `Text`, `TextInput`, `Pressable`, `ScrollView`, `Platform`).
+**No additional UI _component_ libraries.** All components are built with core RN
+primitives (`View`, `Text`, `TextInput`, `Pressable`, `ScrollView`, `Platform`).
+The sole exception is **`react-native-svg`** (Phase 4) — a low-level drawing
+primitive used by `TelemetryChart`, not a component kit — added because telemetry
+history charts cannot be drawn with core primitives alone.
 
 ## Build & Deploy
 

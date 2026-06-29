@@ -47,14 +47,18 @@ export default function DashboardScreen() {
       : mode === "https"
       ? colors.secondary
       : colors.textMuted;
+    // Tapping a device opens its control screen (cockpit). Controls require an
+    // active session, so an unpaired card is a no-op — pairing happens via the
+    // "Connect to device" section below.
+    const onPress = unpaired ? undefined : () => router.push(`/(app)/device/${device.id}`);
     return (
       <Pressable
         key={device.id}
         style={[styles.deviceCard, unpaired && styles.deviceCardUnpaired]}
-        onPress={unpaired ? undefined : () => router.push(`/(app)/device/${device.id}`)}
+        onPress={onPress}
       >
         <View style={styles.deviceHeader}>
-          <Text style={[styles.deviceName, unpaired && styles.deviceNameUnpaired]}>{device.name}</Text>
+          <Text style={styles.deviceName}>{device.name}</Text>
           <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
         </View>
         {unpaired && (
@@ -65,6 +69,8 @@ export default function DashboardScreen() {
       </Pressable>
     );
   }
+
+  const onlineCount = centralDevices.filter((d) => d.isOnline).length;
 
   return (
     <ScrollView
@@ -128,6 +134,10 @@ export default function DashboardScreen() {
           )
         ) : (
           <>
+            <Text style={styles.summaryText}>
+              {centralDevices.length} device{centralDevices.length === 1 ? "" : "s"} ·{" "}
+              {onlineCount} online
+            </Text>
             {centralDevices.map(renderDeviceCard)}
             {!isDevicePaired && (
               <View style={styles.connectSection}>
@@ -302,8 +312,10 @@ const styles = StyleSheet.create({
     ...typography.body,
     fontWeight: "600",
   },
-  deviceNameUnpaired: {
+  summaryText: {
+    ...typography.caption,
     color: colors.textSecondary,
+    marginBottom: spacing.sm,
   },
   deviceUnpairedHint: {
     ...typography.caption,

@@ -7,6 +7,7 @@
  *   • ControlPad: keyboard on web, absolute D-pad overlay on mobile
  */
 
+import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
@@ -70,13 +71,19 @@ export default function DeviceCockpitScreen() {
           <Text style={styles.deviceName} numberOfLines={1}>
             {modelName}
           </Text>
-          <Text style={styles.vin}>VIN: {id}</Text>
-          {device?.firmwareVersion != null && (
-            <Text style={styles.vin}>FW: {device.firmwareVersion}</Text>
-          )}
         </View>
 
         <View style={styles.headerRight}>
+          {/* Settings — opens the per-device dashboard (metadata, telemetry, calibration) */}
+          <Pressable
+            onPress={() => router.push(`/(app)/fleet/${id}`)}
+            style={styles.cogButton}
+            hitSlop={8}
+            accessibilityLabel="Device settings"
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.primary} />
+          </Pressable>
+
           {/* Transport status dot */}
           <View
             style={[
@@ -175,14 +182,13 @@ const styles = StyleSheet.create({
   deviceName: {
     ...typography.heading,
   },
-  vin: {
-    ...typography.caption,
-    marginTop: 2,
-  },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
+  },
+  cogButton: {
+    padding: spacing.xs,
   },
   statusDot: {
     width: 10,
