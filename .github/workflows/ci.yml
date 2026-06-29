@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # check: type-check + lint + unit tests
+  # ──────────────────────────────────────────────────────────────────────────
+  check:
+    name: Check (type-check + lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check — tsc
+        run: npm run typecheck
+
+      - name: Lint — expo lint
+        run: npm run lint
+
+      - name: Unit tests — jest
+        run: npm test
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # web-smoke: build the web export and render it in a real browser
+  # ──────────────────────────────────────────────────────────────────────────
+  web-smoke:
+    name: Web smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web export
+        run: npm run build:web
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Web smoke test
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

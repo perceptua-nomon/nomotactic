@@ -88,9 +88,28 @@ EXPO_PUBLIC_CENTRAL_API_URL=https://api.nomon.example.com
 ## Development
 
 ```bash
-npx expo lint         # ESLint
-npx tsc --noEmit      # Type check
+npm run lint          # ESLint (expo lint)
+npm run typecheck     # tsc --noEmit
+npm test              # jest unit tests (lib/ data layer)
+npm run smoke         # build web export + Playwright render smoke test
 ```
+
+### Testing & CI
+
+Three layers, all run by GitHub Actions (`.github/workflows/ci.yml`) on pushes
+and PRs to `main`:
+
+- **Type check + lint** — `tsc --noEmit` and `expo lint`.
+- **Unit tests** — `jest` over the `lib/` data layer (the API client and helper
+  modules; React Native is stubbed, so these don't render components).
+- **Web smoke** — `npm run smoke` exports the app for web (`expo export`,
+  exercising every route/import) and renders it in headless Chromium via
+  Playwright (`e2e/smoke.spec.ts`), asserting the app actually loads and routes.
+  This is the render-level check the stubbed jest suite can't provide.
+
+> Running the smoke test in a sandbox that ships its own Chromium? Set
+> `PW_EXECUTABLE_PATH=/path/to/chrome` to point Playwright at it instead of a
+> managed download.
 
 ## Architecture
 
