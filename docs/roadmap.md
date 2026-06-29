@@ -605,12 +605,19 @@ API + profile-edit endpoints). The fleet list already existed via
 
 **Delivered:**
 - **Fleet overview** — aggregate status header (`N devices · M online`) on the
-  dashboard (`app/(app)/index.tsx`); registered (central) device cards now open a
-  management detail rather than only the live cockpit.
-- **Management detail** (`app/(app)/fleet/[vin].tsx`) — central-data view: device
-  metadata + latest telemetry (`GET /api/fleet/devices/{vin}`), telemetry history
-  chart, "Open controls" (cockpit) and "Calibrate device" links, and
-  "Remove from fleet" (`DELETE`). New `lib/fleet.ts` helpers.
+  dashboard (`app/(app)/index.tsx`).
+- **Navigation flow** — tapping a (paired) device opens its **control screen**
+  (cockpit, `app/(app)/device/[id].tsx`) directly; a **settings cog** in the
+  cockpit header (Ionicons, `@expo/vector-icons`) opens the per-device
+  **dashboard**. From there the user returns to controls or opens calibration.
+  VIN/FW were removed from the cockpit header (that info lives on the dashboard).
+  An unpaired card is a no-op — pairing stays on the dashboard's Connect section.
+- **Per-device dashboard** (`app/(app)/fleet/[vin].tsx`) — central-data view:
+  device metadata + latest telemetry (`GET /api/fleet/devices/{vin}`), telemetry
+  history chart, "Return to controls" and "Calibrate device" actions, and
+  "Remove from fleet" (`DELETE`). Reached via the cockpit cog; degrades
+  gracefully (actions still available) when the device isn't in the central
+  fleet. New `lib/fleet.ts` helpers.
 - **Telemetry history charts** — `components/TelemetryChart.tsx`, a line/area
   chart over **`react-native-svg`** (battery / CPU temp / uptime, selectable),
   fed by `GET /api/fleet/devices/{vin}/telemetry`.

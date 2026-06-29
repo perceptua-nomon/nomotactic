@@ -80,113 +80,130 @@ export default function FleetDeviceScreen() {
     }
   }, [vin, confirmingRemove, router]);
 
+  const returnToControls = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace(`/(app)/device/${vin}`);
+  }, [router, vin]);
+
   const activeMetric = METRICS.find((m) => m.key === metric) ?? METRICS[0];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Pressable onPress={() => router.back()} style={styles.backRow}>
-        <Text style={styles.backText}>‹ Devices</Text>
+      <Pressable onPress={returnToControls} style={styles.backRow}>
+        <Text style={styles.backText}>‹ Controls</Text>
       </Pressable>
 
       {isLoading ? (
         <ActivityIndicator color={colors.primary} size="large" style={styles.loader} />
-      ) : error !== null && detail === null ? (
-        <View style={styles.errorRow}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable style={styles.smallButton} onPress={load}>
-            <Text style={styles.smallButtonText}>Retry</Text>
-          </Pressable>
-        </View>
-      ) : detail !== null ? (
+      ) : (
         <>
-          <Text style={styles.title}>{detail.model}</Text>
-          <Text style={styles.subtitle}>{detail.vin}</Text>
+          <Text style={styles.title}>{detail?.model ?? "Device"}</Text>
+          <Text style={styles.subtitle}>{vin}</Text>
 
-          {error !== null && (
-            <View style={styles.errorRow}>
-              <Text style={styles.errorText}>{error}</Text>
+          {detail !== null ? (
+            <>
+              {error !== null && (
+                <View style={styles.errorRow}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
+
+              {/* Metadata */}
+              <View style={styles.card}>
+                <Row label="Role" value={detail.role} />
+                <Row label="Firmware" value={detail.firmware_version ?? "—"} />
+                <Row label="Last seen" value={formatLastSeen(detail.last_seen_at)} />
+                <Row label="Registered" value={formatLastSeen(detail.registered_at)} />
+                {detail.latest_telemetry !== null && (
+                  <Row
+                    label="Battery"
+                    value={`${detail.latest_telemetry.battery_voltage.toFixed(1)} V`}
+                  />
+                )}
+              </View>
+
+              {/* Telemetry chart */}
+              <View style={styles.card}>
+                <View style={styles.metricRow}>
+                  {METRICS.map((m) => (
+                    <Pressable
+                      key={m.key}
+                      onPress={() => setMetric(m.key)}
+                      style={[styles.metricTab, metric === m.key && styles.metricTabActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.metricTabText,
+                          metric === m.key && styles.metricTabTextActive,
+                        ]}
+                      >
+                        {m.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <TelemetryChart
+                  readings={readings}
+                  metric={activeMetric.key}
+                  label={activeMetric.label}
+                  unit={activeMetric.unit}
+                />
+              </View>
+            </>
+          ) : (
+            // Central fleet data is unavailable (e.g. a local/guest device not
+            // registered to an account, or the fleet service is unreachable).
+            // Controls and calibration remain accessible below.
+            <View style={styles.card}>
+              <Text style={styles.unavailableText}>
+                Fleet data unavailable — this device isn&apos;t registered to your account, or
+                the fleet service is unreachable.
+              </Text>
+              {error !== null && <Text style={styles.errorText}>{error}</Text>}
+              <Pressable style={styles.smallButton} onPress={load}>
+                <Text style={styles.smallButtonText}>Retry</Text>
+              </Pressable>
             </View>
           )}
 
-          {/* Metadata */}
-          <View style={styles.card}>
-            <Row label="Role" value={detail.role} />
-            <Row label="Firmware" value={detail.firmware_version ?? "—"} />
-            <Row label="Last seen" value={formatLastSeen(detail.last_seen_at)} />
-            <Row label="Registered" value={formatLastSeen(detail.registered_at)} />
-            {detail.latest_telemetry !== null && (
-              <Row
-                label="Battery"
-                value={`${detail.latest_telemetry.battery_voltage.toFixed(1)} V`}
-              />
-            )}
-          </View>
-
-          {/* Telemetry chart */}
-          <View style={styles.card}>
-            <View style={styles.metricRow}>
-              {METRICS.map((m) => (
-                <Pressable
-                  key={m.key}
-                  onPress={() => setMetric(m.key)}
-                  style={[styles.metricTab, metric === m.key && styles.metricTabActive]}
-                >
-                  <Text
-                    style={[
-                      styles.metricTabText,
-                      metric === m.key && styles.metricTabTextActive,
-                    ]}
-                  >
-                    {m.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <TelemetryChart
-              readings={readings}
-              metric={activeMetric.key}
-              label={activeMetric.label}
-              unit={activeMetric.unit}
-            />
-          </View>
-
-          {/* Actions */}
-          <Pressable
-            style={styles.controlButton}
-            onPress={() => router.push(`/(app)/device/${detail.vin}`)}
-          >
-            <Text style={styles.controlButtonText}>Open controls</Text>
+          {/* Actions — always available */}
+          <Pressable style={styles.controlButton} onPress={returnToControls}>
+            <Text style={styles.controlButtonText}>Return to controls</Text>
           </Pressable>
 
           <Pressable style={styles.secondaryButton} onPress={() => router.push("/(app)/calibrate")}>
             <Text style={styles.secondaryButtonText}>Calibrate device</Text>
           </Pressable>
 
-          <Pressable
-            style={[styles.removeButton, confirmingRemove && styles.removeButtonConfirm]}
-            onPress={handleRemove}
-            disabled={removing}
-          >
-            <Text
-              style={[
-                styles.removeButtonText,
-                confirmingRemove && styles.removeButtonTextConfirm,
-              ]}
-            >
-              {removing
-                ? "Removing…"
-                : confirmingRemove
-                ? "Tap again to confirm removal"
-                : "Remove from fleet"}
-            </Text>
-          </Pressable>
-          {confirmingRemove && !removing && (
-            <Pressable onPress={() => setConfirmingRemove(false)} style={styles.cancelRow}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
+          {detail !== null && (
+            <>
+              <Pressable
+                style={[styles.removeButton, confirmingRemove && styles.removeButtonConfirm]}
+                onPress={handleRemove}
+                disabled={removing}
+              >
+                <Text
+                  style={[
+                    styles.removeButtonText,
+                    confirmingRemove && styles.removeButtonTextConfirm,
+                  ]}
+                >
+                  {removing
+                    ? "Removing…"
+                    : confirmingRemove
+                    ? "Tap again to confirm removal"
+                    : "Remove from fleet"}
+                </Text>
+              </Pressable>
+              {confirmingRemove && !removing && (
+                <Pressable onPress={() => setConfirmingRemove(false)} style={styles.cancelRow}>
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </>
-      ) : null}
+      )}
     </ScrollView>
   );
 }
@@ -270,6 +287,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   errorText: { color: colors.error, fontSize: 14, flex: 1, marginRight: spacing.sm },
+  unavailableText: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm },
   smallButton: {
     backgroundColor: colors.surfaceElevated,
     borderRadius: borderRadius.sm,

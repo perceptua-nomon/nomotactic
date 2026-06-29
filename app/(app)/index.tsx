@@ -47,28 +47,21 @@ export default function DashboardScreen() {
       : mode === "https"
       ? colors.secondary
       : colors.textMuted;
-    // Registered (central) devices open the fleet management detail (central
-    // data — no pairing required). Local devices open the live cockpit.
-    const onPress =
-      device.source === "central"
-        ? () => router.push(`/(app)/fleet/${device.id}`)
-        : unpaired
-        ? undefined
-        : () => router.push(`/(app)/device/${device.id}`);
+    // Tapping a device opens its control screen (cockpit). Controls require an
+    // active session, so an unpaired card is a no-op — pairing happens via the
+    // "Connect to device" section below.
+    const onPress = unpaired ? undefined : () => router.push(`/(app)/device/${device.id}`);
     return (
       <Pressable
         key={device.id}
-        style={[styles.deviceCard, unpaired && device.source !== "central" && styles.deviceCardUnpaired]}
+        style={[styles.deviceCard, unpaired && styles.deviceCardUnpaired]}
         onPress={onPress}
       >
         <View style={styles.deviceHeader}>
           <Text style={styles.deviceName}>{device.name}</Text>
           <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
         </View>
-        {device.source === "central" && (
-          <Text style={styles.deviceManageHint}>Tap to manage · view telemetry</Text>
-        )}
-        {unpaired && device.source !== "central" && (
+        {unpaired && (
           <Text style={styles.deviceUnpairedHint}>
             Not connected — use the Connect section below to reconnect.
           </Text>
@@ -318,11 +311,6 @@ const styles = StyleSheet.create({
   deviceName: {
     ...typography.body,
     fontWeight: "600",
-  },
-  deviceManageHint: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: spacing.xs,
   },
   summaryText: {
     ...typography.caption,
